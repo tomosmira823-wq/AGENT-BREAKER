@@ -16,7 +16,10 @@
     "report": "node src/cli.js report",
     "list": "node src/cli.js list",
     "test": "node test/run-tests.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "dist": "electron-builder --win portable --x64",
+    "dist:portable": "electron-builder --win portable",
+    "dist:installer": "electron-builder --win nsis --x64"
   },
   "keywords": [
     "ai-safety",
@@ -35,6 +38,50 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "uk.kivo.agentbreaker",
+    "productName": "Agent Breaker",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      "renderer/**",
+      "src/**",
+      "scenarios/**",
+      "models.json",
+      "package.json",
+      "node_modules/three/**"
+    ],
+    "extraResources": [
+      {
+        "from": ".env.example",
+        "to": ".env.example"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    }
   }
 }

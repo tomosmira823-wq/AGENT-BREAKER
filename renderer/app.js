@@ -42,7 +42,24 @@ async function init() {
   await refreshReplayList();
   renderRooms([]);
   renderResults();
-  $('#key-hint').textContent = available.length ? `${available.length} model(s) have API keys` : 'No API keys in .env, mock agents only';
+  await updateKeyHint();
+}
+
+async function updateKeyHint() {
+  const paths = await window.lab.paths();
+  const available = state.models.filter((m) => m.available && m.provider !== 'mock');
+  const hint = $('#key-hint');
+  hint.textContent = available.length ? `${available.length} model(s) have API keys` : 'No API keys yet, mock agents only';
+  hint.title = `Keys are read from ${paths.envFile}`;
+}
+
+async function reloadModels() {
+  state.models = await window.lab.models();
+  for (const m of state.models) if (!m.available) state.selModels.delete(m.id);
+  const available = state.models.filter((m) => m.available && m.provider !== 'mock');
+  if (available.length && ![...state.selModels].some((id) => available.find((m) => m.id === id))) available.forEach((m) => state.selModels.add(m.id));
+  renderChips();
+  await updateKeyHint();
 }
 
 function renderChips() {
@@ -74,6 +91,8 @@ function renderChips() {
 $('#sel-all').onclick = () => { state.scenarios.forEach((s) => state.selScenarios.add(s.id)); renderChips(); };
 $('#sel-none').onclick = () => { state.selScenarios.clear(); renderChips(); };
 $('#runs-folder').onclick = () => window.lab.openRunsFolder();
+$('#open-env').onclick = () => window.lab.openEnv();
+$('#reload-models').onclick = () => reloadModels();
 $('#drawer-close').onclick = () => $('#drawer').classList.remove('open');
 
 // ------------------------------------------------------------------ rooms

@@ -125,3 +125,9 @@ runs/           results (gitignored)
 ```
 
 MIT
+
+## Windows build
+
+Download `Agent Breaker-<version>-portable.exe` from the Releases page. It is a single file, no install. Put a `.env` with your keys next to the exe (click **add keys** in the app and it creates one for you), then hit **refresh**. Runs are saved to `%APPDATA%\agent-breaker\runs`, the **runs** button opens that folder.
+
+To build it yourself on Windows: `npm run dist` makes the portable exe, `npm run dist:installer` makes an installer with a desktop shortcut.

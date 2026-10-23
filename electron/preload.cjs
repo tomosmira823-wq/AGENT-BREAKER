@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('lab', {
   loadRun: (file) => ipcRenderer.invoke('lab:load-run', file),
   report: (file) => ipcRenderer.invoke('lab:report', file),
   openRunsFolder: () => ipcRenderer.invoke('lab:open-runs-folder'),
+  openEnv: () => ipcRenderer.invoke('lab:open-env'),
+  paths: () => ipcRenderer.invoke('lab:paths'),
   onEvent: (fn) => on('lab:event', fn),
   onBatchStart: (fn) => on('lab:batch-start', fn),
   onScenarioDone: (fn) => on('lab:scenario-done', fn),

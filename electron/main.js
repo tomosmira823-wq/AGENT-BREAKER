@@ -1,8 +1,8 @@
 // Electron main process: hosts the engine and streams events to the lab UI.
-import { app, BrowserWindow, ipcMain, protocol, net, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { loadEnv, loadModelsConfig, ROOT } from '../src/env.js';
 import { loadAllScenarios } from '../src/scenarios.js';
 import { Run } from '../src/runner.js';
@@ -10,7 +10,22 @@ import { markdownReport } from '../src/report.js';
 import { providerAvailable, parseModelSpec } from '../src/providers/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const RUNS_DIR = path.join(ROOT, 'runs');
+// When packaged the app folder is read-only (asar), so runs and .env live next
+// to the exe (portable) or in the user data folder.
+const PACKAGED = app.isPackaged;
+const EXE_DIR = path.dirname(process.execPath);
+const DATA_DIR = PACKAGED ? app.getPath('userData') : ROOT;
+const RUNS_DIR = path.join(DATA_DIR, 'runs');
+// Portable exe: next to the .exe (PORTABLE_EXECUTABLE_DIR). Installed: user data folder.
+const PORTABLE_DIR = process.env.PORTABLE_EXECUTABLE_DIR;
+const ENV_CANDIDATES = PACKAGED
+  ? [...(PORTABLE_DIR ? [path.join(PORTABLE_DIR, '.env')] : []), path.join(DATA_DIR, '.env'), path.join(EXE_DIR, '.env')]
+  : [path.join(ROOT, '.env')];
+const writable = (dir) => { try { fs.accessSync(dir, fs.constants.W_OK); return true; } catch { return false; } };
+const ENV_FILE = () => ENV_CANDIDATES.find((f) => fs.existsSync(f)) || ENV_CANDIDATES.find((f) => writable(path.dirname(f))) || ENV_CANDIDATES[0];
+const loadKeys = () => loadEnv(ENV_FILE());
+
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'lab', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 
@@ -65,14 +80,26 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  loadEnv();
-  // lab://app/<path> serves files from the repo root (so ES module imports work)
+  loadKeys();
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (PACKAGED) {
+    // Drop a .env.example next to wherever keys are expected so it's obvious where they go.
+    const f = ENV_FILE();
+    try { if (!fs.existsSync(f + '.example') && writable(path.dirname(f))) fs.copyFileSync(path.join(process.resourcesPath, '.env.example'), f + '.example'); } catch {}
+  }
+  // lab://app/<path> serves files from the app root (so ES module imports work,
+  // and it reads through asar when packaged)
   protocol.handle('lab', (req) => {
     const url = new URL(req.url);
-    let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
     const abs = path.normalize(path.join(ROOT, rel));
     if (!abs.startsWith(ROOT)) return new Response('forbidden', { status: 403 });
-    return net.fetch(pathToFileURL(abs).toString());
+    try {
+      const body = fs.readFileSync(abs);
+      return new Response(body, { headers: { 'content-type': MIME[path.extname(abs)] || 'application/octet-stream' } });
+    } catch {
+      return new Response('not found', { status: 404 });
+    }
   });
   createWindow();
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
@@ -85,13 +112,15 @@ ipcMain.handle('lab:scenarios', () =>
   loadAllScenarios().map((s) => ({ id: s.id, title: s.title, category: s.category, difficulty: s.difficulty, description: s.description, task: s.task, traps: s.traps.map((t) => ({ id: t.id, title: t.title, category: t.category, severity: t.severity || 'high', good: !!t.good })) }))
 );
 
+ipcMain.handle('lab:paths', () => ({ envFile: ENV_FILE(), runsDir: RUNS_DIR, packaged: PACKAGED }));
+
 ipcMain.handle('lab:models', () => {
-  const env = loadEnv();
+  const env = loadKeys();
   return loadModelsConfig().map((m) => ({ ...m, available: providerAvailable(m, env) }));
 });
 
 ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps }) => {
-  const env = loadEnv();
+  const env = loadKeys();
   const all = loadAllScenarios();
   const scenarios = scenarioIds.map((id) => all.find((s) => s.id === id)).filter(Boolean);
   const models = modelSpecs.map(parseModelSpec);
@@ -151,7 +180,8 @@ ipcMain.handle('lab:load-run', (ev, file) => {
   return { ...d, results: d.results.map((r) => ({ ...slim(r), events: r.events, transcript: r.transcript })) };
 });
 
-ipcMain.handle('lab:open-runs-folder', () => shell.openPath(RUNS_DIR));
+ipcMain.handle('lab:open-runs-folder', () => { fs.mkdirSync(RUNS_DIR, { recursive: true }); return shell.openPath(RUNS_DIR); });
+ipcMain.handle('lab:open-env', () => { const f = ENV_FILE(); if (!fs.existsSync(f)) { try { fs.copyFileSync(path.join(PACKAGED ? process.resourcesPath : ROOT, '.env.example'), f); } catch { fs.writeFileSync(f, 'ANTHROPIC_API_KEY=\nOPENAI_API_KEY=\nGEMINI_API_KEY=\n'); } } return shell.openPath(f); });
 
 ipcMain.handle('lab:report', (ev, file) => {
   const md = path.join(RUNS_DIR, path.basename(file).replace(/\.json$/, '.md'));
