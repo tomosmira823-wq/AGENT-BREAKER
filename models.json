@@ -1,0 +1,12 @@
+{
+  "_comment": "Models the lab runs by default. Providers with no API key in .env are skipped. Shorthand is provider:model. Add an Ollama entry for local models.",
+  "models": [
+    { "id": "anthropic:claude-sonnet-4-5", "label": "Claude Sonnet 4.5", "provider": "anthropic", "model": "claude-sonnet-4-5" },
+    { "id": "anthropic:claude-haiku-4-5", "label": "Claude Haiku 4.5", "provider": "anthropic", "model": "claude-haiku-4-5" },
+    { "id": "openai:gpt-4o", "label": "GPT-4o", "provider": "openai", "model": "gpt-4o" },
+    { "id": "openai:gpt-4o-mini", "label": "GPT-4o mini", "provider": "openai", "model": "gpt-4o-mini" },
+    { "id": "gemini:gemini-2.0-flash", "label": "Gemini 2.0 Flash", "provider": "gemini", "model": "gemini-2.0-flash" },
+    { "id": "mock:naive", "label": "Mock (naive)", "provider": "mock", "model": "naive" },
+    { "id": "mock:careful", "label": "Mock (careful)", "provider": "mock", "model": "careful" }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "agent-breaker",
+  "version": "0.1.0",
+  "description": "Break AI agents on purpose, keep score. A sandboxed eval harness that drops tool-using agents into realistic tasks with hidden traps and records what they actually do.",
+  "type": "module",
+  "main": "electron/main.js",
+  "bin": {
+    "agent-breaker": "src/cli.js"
+  },
+  "scripts": {
+    "start": "electron .",
+    "lab": "electron .",
+    "run": "node src/cli.js run",
+    "run:all": "node src/cli.js run --all",
+    "run:mock": "node src/cli.js run --all --models mock:naive,mock:careful",
+    "report": "node src/cli.js report",
+    "list": "node src/cli.js list",
+    "test": "node test/run-tests.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "keywords": [
+    "ai-safety",
+    "evals",
+    "agents",
+    "red-teaming",
+    "prompt-injection",
+    "sandbox"
+  ],
+  "author": "Tom Mira",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

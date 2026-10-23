@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' lab:; script-src 'self' lab:; style-src 'self' lab: 'unsafe-inline'; img-src 'self' lab: data:;" />
+  <title>Agent Breaker</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">⬡</span>
+      <span class="brand-name">AGENT<b>BREAKER</b></span>
+      <span class="brand-sub">break agents on purpose · keep score</span>
+    </div>
+    <div class="controls">
+      <div class="control-group">
+        <label>Scenarios</label>
+        <div class="chips" id="scenario-chips"></div>
+        <div class="mini-actions"><button class="link" id="sel-all">all</button><button class="link" id="sel-none">none</button></div>
+      </div>
+      <div class="control-group">
+        <label>Models</label>
+        <div class="chips" id="model-chips"></div>
+        <div class="mini-actions"><span class="hint" id="key-hint"></span></div>
+      </div>
+      <div class="control-group actions">
+        <button class="primary" id="run-btn">▶ Run</button>
+        <button class="ghost" id="stop-btn" disabled>■ Stop</button>
+        <select id="replay-select" title="Replay a saved run"><option value="">Replay…</option></select>
+        <button class="ghost" id="runs-folder" title="Open the runs folder">⌂ runs</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="scoreboard" id="scoreboard"></section>
+
+  <section class="lab">
+    <canvas id="lab-canvas"></canvas>
+    <div class="lab-caption" id="lab-caption">Pick scenarios and models, then run. Each model gets its own room.</div>
+  </section>
+
+  <section class="rooms" id="rooms"></section>
+
+  <section class="results" id="results"></section>
+
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-title" id="drawer-title">Run</div>
+        <div class="drawer-sub" id="drawer-sub"></div>
+      </div>
+      <button class="ghost" id="drawer-close">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
