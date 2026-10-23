@@ -21,6 +21,7 @@ const PORTABLE_DIR = process.env.PORTABLE_EXECUTABLE_DIR;
 const ENV_CANDIDATES = PACKAGED
   ? [...(PORTABLE_DIR ? [path.join(PORTABLE_DIR, '.env')] : []), path.join(DATA_DIR, '.env'), path.join(EXE_DIR, '.env')]
   : [path.join(ROOT, '.env')];
+const ADDONS_DIR = PACKAGED ? path.join(process.resourcesPath, 'three-addons') : path.join(ROOT, 'node_modules', 'three', 'examples', 'jsm');
 const writable = (dir) => { try { fs.accessSync(dir, fs.constants.W_OK); return true; } catch { return false; } };
 const ENV_FILE = () => ENV_CANDIDATES.find((f) => fs.existsSync(f)) || ENV_CANDIDATES.find((f) => writable(path.dirname(f))) || ENV_CANDIDATES[0];
 const loadKeys = () => loadEnv(ENV_FILE());
@@ -51,6 +52,36 @@ function createWindow() {
   });
   win.loadURL('lab://app/renderer/index.html' + (process.env.AB_NOPOST ? '?nopost' : ''));
   win.on('closed', () => (win = null));
+
+  // Click test (AB_CLICKTEST=file.json): loads the lab, presses the sidebar
+  // buttons, and writes what the page and the IPC bridge report. Used to catch
+  // packaged-build breakage that the dev tree hides.
+  if (process.env.AB_CLICKTEST) {
+    const out = process.env.AB_CLICKTEST;
+    const errs = [];
+    win.webContents.on('console-message', (e, level, message) => { if (level >= 3) errs.push(message); });
+    win.webContents.once('did-finish-load', async () => {
+      const finish = (extra) => { fs.writeFileSync(out, JSON.stringify({ ...extra, errors: errs }, null, 2)); app.exit(0); };
+      const timeout = new Promise((res) => setTimeout(() => res({ timedOut: true }), 15000));
+      const probe = win.webContents.executeJavaScript(`(async () => {
+        window.__abClicks = ${process.env.AB_CLICKS ? 'true' : 'false'};
+        const r = { labType: typeof window.lab };
+        await new Promise((res) => setTimeout(res, 2000));
+        r.scenarioRows = document.querySelectorAll('#scenario-list .row').length;
+        r.modelRows = document.querySelectorAll('#model-list .row').length;
+        r.scenariosIpc = (await window.lab.scenarios()).length;
+        r.modelsIpc = (await window.lab.models()).length;
+        if (window.__abClicks) { document.querySelector('#reload-models').click(); await new Promise((res) => setTimeout(res, 1500)); r.afterRefresh = (await window.lab.models()).length; }
+        for (const u of ['renderer/app.js', 'vendor/three/addons/postprocessing/EffectComposer.js', 'vendor/three/addons/environments/RoomEnvironment.js']) {
+          const res = await fetch('lab://app/' + u);
+          r[u] = res.status;
+        }
+        return r;
+      })()`).catch((e) => ({ hookError: String(e) }));
+      const result = await Promise.race([probe, timeout]);
+      finish(result);
+    });
+  }
 
   // Headless smoke test (used by `npm run smoke`): run the mock agents on two
   // scenarios, grab a screenshot, dump console errors, exit.
@@ -96,8 +127,16 @@ app.whenReady().then(() => {
   protocol.handle('lab', (req) => {
     const url = new URL(req.url);
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
-    const abs = path.normalize(path.join(ROOT, rel));
-    if (!abs.startsWith(ROOT)) return new Response('forbidden', { status: 403 });
+    // three.js addons live outside the app folder (electron-builder drops them from asar)
+    const ADDON_PREFIX = 'vendor/three/addons/';
+    let abs;
+    if (rel.startsWith(ADDON_PREFIX)) {
+      abs = path.normalize(path.join(ADDONS_DIR, rel.slice(ADDON_PREFIX.length)));
+      if (!abs.startsWith(ADDONS_DIR)) return new Response('forbidden', { status: 403 });
+    } else {
+      abs = path.normalize(path.join(ROOT, rel));
+      if (!abs.startsWith(ROOT)) return new Response('forbidden', { status: 403 });
+    }
     try {
       const body = fs.readFileSync(abs);
       return new Response(body, { headers: { 'content-type': MIME[path.extname(abs)] || 'application/octet-stream' } });

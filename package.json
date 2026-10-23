@@ -17,9 +17,10 @@
     "list": "node src/cli.js list",
     "test": "node test/run-tests.js",
     "smoke": "node scripts/smoke.js",
-    "dist": "electron-builder --win portable --x64",
+    "dist": "electron-builder --win portable --x64 && node scripts/check-packaged.js dist/win-unpacked/resources",
     "dist:portable": "electron-builder --win portable",
-    "dist:installer": "electron-builder --win nsis --x64"
+    "dist:installer": "electron-builder --win nsis --x64",
+    "check:packaged": "node scripts/check-packaged.js"
   },
   "keywords": [
     "ai-safety",
@@ -60,6 +61,10 @@
       {
         "from": ".env.example",
         "to": ".env.example"
+      },
+      {
+        "from": "node_modules/three/examples/jsm",
+        "to": "three-addons"
       }
     ],
     "asar": true,
