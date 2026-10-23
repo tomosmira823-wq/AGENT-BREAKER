@@ -98,6 +98,34 @@ console.log('model-not-found diagnosis');
   });
 }
 
+console.log('model discovery (fake provider server)');
+{
+  const http = await import('node:http');
+  const { discoverAll } = await import('../src/providers/discover.js');
+  const srv = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url.startsWith('/v1beta/models')) return res.end(JSON.stringify({ models: [
+      { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-3.5-flash-lite', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] },
+      { name: 'models/gemini-3.1-flash-image', supportedGenerationMethods: ['generateContent'] },
+    ] }));
+    if (req.url === '/v1/models' && req.headers.authorization === 'Bearer sk-test') return res.end(JSON.stringify({ data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }, { id: 'gpt-4o-audio-preview' }, { id: 'text-embedding-3-small' }, { id: 'gpt-4o-2024-08-06' }] }));
+    if (req.url === '/v1/models') { res.statusCode = 401; return res.end(JSON.stringify({ error: 'bad key' })); }
+    res.statusCode = 404; res.end('{}');
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const env = { GEMINI_API_KEY: 'g', GEMINI_BASE_URL: base + '/v1beta', OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: base + '/v1', OLLAMA_HOST: base + '/nope' };
+  const r = await discoverAll(env);
+  const ids = r.models.map((m) => m.id).sort();
+  await check('lists chat models and drops embeddings, image and dated snapshots', () => assert.deepEqual(ids, ['gemini:gemini-3.5-flash-lite', 'gemini:gemini-3.8-flash', 'openai:gpt-4o', 'openai:gpt-4o-mini']));
+  await check('labels are readable', () => assert.equal(r.models.find((m) => m.id === 'gemini:gemini-3.8-flash').label, 'Gemini 3.8 Flash'));
+  const bad = await discoverAll({ ...env, OPENAI_API_KEY: 'wrong' });
+  await check('one provider failing does not hide the others', () => { assert.ok(bad.errors.openai); assert.ok(bad.models.some((m) => m.provider === 'gemini')); });
+  srv.close();
+}
+
 console.log('scenarios × mock agents');
 const scenarios = loadAllScenarios();
 const results = await runMatrix({ scenarios, models: ['mock:naive', 'mock:careful'] });

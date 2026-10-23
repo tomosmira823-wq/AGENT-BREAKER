@@ -34,16 +34,23 @@ window.__scene = scene; // for the headless probe
 
 // ------------------------------------------------------------------ setup
 async function init() {
+  renderConsoles([]); // empty bays straight away; discovery can take a second
   state.scenarios = await window.lab.scenarios();
-  state.models = await window.lab.models();
+  await loadModels();
   state.scenarios.forEach((s) => state.selScenarios.add(s.id));
   const available = state.models.filter((m) => m.available && m.provider !== 'mock');
-  (available.length ? available : state.models.filter((m) => m.provider === 'mock')).forEach((m) => state.selModels.add(m.id));
+  const suggested = available.filter((m) => m.featured);
+  (suggested.length ? suggested : available.length ? available.slice(0, 2) : state.models.filter((m) => m.provider === 'mock' && m.model !== 'broken')).forEach((m) => state.selModels.add(m.id));
   renderLists();
   await updateKeyHint();
   await refreshRunsList();
-  renderConsoles([]);
   renderResults();
+}
+
+async function loadModels({ refresh = false } = {}) {
+  const r = await window.lab.models({ refresh });
+  state.models = r.models;
+  state.modelErrors = r.errors || {};
 }
 
 function renderLists() {
@@ -58,29 +65,45 @@ function renderLists() {
   }
   const ml = $('#model-list');
   ml.innerHTML = '';
-  for (const m of state.models) {
-    const on = state.selModels.has(m.id);
-    const row = el('div', 'row' + (on ? ' on' : '') + (m.available ? '' : ' off'), `<span class="tick">${on ? '✓' : ''}</span><span class="lbl">${esc(m.label || m.id)}</span><span class="sub">${esc(m.provider)}</span>`);
-    row.title = m.available ? m.id : `${m.id} — no API key yet`;
-    row.onclick = () => { if (!m.available) return; on ? state.selModels.delete(m.id) : state.selModels.add(m.id); renderLists(); };
-    ml.appendChild(row);
+  const q = ($('#model-filter')?.value || '').trim().toLowerCase();
+  const PROVIDER_LABEL = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Google Gemini', ollama: 'Ollama (local)', mock: 'Scripted agents' };
+  const order = ['anthropic', 'openai', 'gemini', 'ollama', 'mock'];
+  for (const prov of order) {
+    const mine = state.models.filter((m) => m.provider === prov && (!q || (m.label || m.id).toLowerCase().includes(q) || m.id.toLowerCase().includes(q)));
+    if (!mine.length) continue;
+    const live = mine.some((m) => m.source === 'discovered');
+    const head = el('div', 'group-head', `<span>${esc(PROVIDER_LABEL[prov] || prov)}</span><span class="sub">${live ? `${mine.length} available` : prov === 'mock' ? 'no key needed' : 'add a key'}</span>`);
+    ml.appendChild(head);
+    for (const m of mine) {
+      const on = state.selModels.has(m.id);
+      const row = el('div', 'row' + (on ? ' on' : '') + (m.available ? '' : ' off'), `<span class="tick">${on ? '✓' : ''}</span><span class="lbl">${esc(m.label || m.id)}</span><span class="sub">${m.featured ? 'suggested' : ''}</span>`);
+      row.title = m.available ? m.id : m.note || `${m.id}: add an API key to use this`;
+      row.onclick = () => { if (!m.available) return; on ? state.selModels.delete(m.id) : state.selModels.add(m.id); renderLists(); };
+      ml.appendChild(row);
+    }
   }
+  if (!ml.children.length) ml.appendChild(el('div', 'empty', q ? 'No models match that.' : 'No models yet.'));
   $('#run-meta').textContent = `${state.selScenarios.size} × ${state.selModels.size}`;
 }
 
 async function updateKeyHint() {
   const paths = await window.lab.paths();
   const available = state.models.filter((m) => m.available && m.provider !== 'mock');
+  const provs = [...new Set(available.map((m) => m.provider))];
+  const errs = Object.entries(state.modelErrors || {}).filter(([p]) => p !== 'ollama');
   const hint = $('#key-hint');
-  hint.textContent = available.length ? `${available.length} model${available.length > 1 ? 's' : ''} with API keys` : 'No API keys yet, mock agents only. Click add keys.';
+  hint.textContent = errs.length
+    ? `Could not list ${errs.map(([p]) => p).join(' and ')} models: ${errs[0][1]}`
+    : available.length ? `${available.length} model${available.length > 1 ? 's' : ''} your key${provs.length > 1 ? 's' : ''} can use. Suggested ones are a good start.` : 'No API keys yet, so only the scripted agents are available. Add keys to test real models.';
   hint.title = `Keys are read from ${paths.envFile}`;
 }
 
 async function reloadModels() {
-  state.models = await window.lab.models();
+  $('#key-hint').textContent = 'Asking providers which models your keys can use…';
+  await loadModels({ refresh: true });
   for (const m of state.models) if (!m.available) state.selModels.delete(m.id);
   const available = state.models.filter((m) => m.available && m.provider !== 'mock');
-  if (available.length && ![...state.selModels].some((id) => available.find((m) => m.id === id))) available.forEach((m) => state.selModels.add(m.id));
+  if (available.length && ![...state.selModels].some((id) => available.find((m) => m.id === id))) (available.filter((m) => m.featured).length ? available.filter((m) => m.featured) : available.slice(0, 2)).forEach((m) => state.selModels.add(m.id));
   renderLists();
   await updateKeyHint();
 }
@@ -118,6 +141,7 @@ $('#keys-save').onclick = async () => {
   $('#status').textContent = 'Keys saved. Pick a model and run.';
 };
 $('#reload-models').onclick = () => reloadModels();
+$('#model-filter').oninput = () => renderLists();
 $('#drawer-close').onclick = () => $('#drawer').classList.remove('open');
 $('#panel-toggle').onclick = () => document.body.classList.toggle('panel-hidden');
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#drawer').classList.remove('open'); });

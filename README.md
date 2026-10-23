@@ -94,7 +94,7 @@ anthropic:claude-sonnet-5-5   openai:gpt-4o   gemini:gemini-3.8-flash
 ollama:llama3.1               mock:naive      mock:careful      mock:broken
 ```
 
-Add an Ollama entry to test local models. Set `OPENAI_BASE_URL` to point the OpenAI adapter at any compatible server.
+With a key in place the lab asks that provider for every model the key can use and lists them all, grouped by provider, with the `models.json` ones marked as suggested. `node src/cli.js models` prints the same list. Ollama models show up automatically if Ollama is running. Set `OPENAI_BASE_URL` to point the OpenAI adapter at any compatible server.
 
 If a model name has been retired (Google shut down `gemini-2.0-flash` in June 2026, for example) the run is scored as an **error**, not a pass or a fail, and the error message lists the model names your key can actually use. Edit `models.json` to match. One model failing never stops the others in the batch. `mock:broken` fakes a failing API so you can see what that looks like without a key.
 

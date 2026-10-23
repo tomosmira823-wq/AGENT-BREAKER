@@ -9,6 +9,7 @@ import { Run } from '../src/runner.js';
 import { markdownReport } from '../src/report.js';
 import { providerAvailable, parseModelSpec } from '../src/providers/index.js';
 import { mergeKeys, KEY_NAMES } from '../src/keys.js';
+import { discoverAll, clearDiscoveryCache } from '../src/providers/discover.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // When packaged the app folder is read-only (asar), so runs and .env live next
@@ -77,16 +78,16 @@ function createWindow() {
         r.scenarioRows = document.querySelectorAll('#scenario-list .row').length;
         r.modelRows = document.querySelectorAll('#model-list .row').length;
         r.scenariosIpc = (await window.lab.scenarios()).length;
-        r.modelsIpc = (await window.lab.models()).length;
+        r.modelsIpc = (await window.lab.models()).models.length;
         if (window.__abKeys) {
           document.querySelector('#open-env').click(); await new Promise((res) => setTimeout(res, 800));
           r.dialogOpened = !document.querySelector('#keys-modal').hidden;
           document.querySelector('#key-OPENAI_API_KEY').value = 'sk-test-FAKE-0000';
           document.querySelector('#keys-save').click(); await new Promise((res) => setTimeout(res, 1500));
           r.dialogClosed = document.querySelector('#keys-modal').hidden;
-          r.availableAfterSave = (await window.lab.models()).filter((x) => x.available).map((x) => x.id);
+          r.availableAfterSave = (await window.lab.models()).models.filter((x) => x.available).map((x) => x.id);
         }
-        if (window.__abClicks) { document.querySelector('#reload-models').click(); await new Promise((res) => setTimeout(res, 1500)); r.afterRefresh = (await window.lab.models()).length; }
+        if (window.__abClicks) { document.querySelector('#reload-models').click(); await new Promise((res) => setTimeout(res, 1500)); r.afterRefresh = (await window.lab.models()).models.length; }
         if (window.__abBatch) {
           // run two scenarios with a broken model and a working one, then read the UI back
           [...document.querySelectorAll('#scenario-list .row')].forEach((c, i) => { if ((i < 2) !== c.classList.contains('on')) c.click(); });
@@ -205,9 +206,26 @@ ipcMain.handle('lab:scenarios', () =>
 
 ipcMain.handle('lab:paths', () => ({ envFile: ENV_FILE(), runsDir: RUNS_DIR, packaged: PACKAGED }));
 
-ipcMain.handle('lab:models', () => {
+// Models = everything the current keys can reach (asked live, cached a few
+// minutes) plus the curated models.json entries for providers with no key yet,
+// greyed out so it is clear what adding a key unlocks.
+ipcMain.handle('lab:models', async (ev, { refresh } = {}) => {
   const env = loadKeys();
-  return loadModelsConfig().map((m) => ({ ...m, available: providerAvailable(m, env) }));
+  if (refresh) clearDiscoveryCache();
+  const curated = loadModelsConfig();
+  const found = await discoverAll(env);
+  const haveKey = (p) => providerAvailable({ provider: p, model: 'x' }, env);
+  const discoveredProviders = new Set(found.models.map((x) => x.provider));
+  const models = [];
+  for (const d of found.models) models.push({ ...d, available: true, source: 'discovered' });
+  for (const c of curated) {
+    if (c.provider === 'mock') { models.push({ ...c, available: true, source: 'curated' }); continue; }
+    if (models.some((x) => x.id === c.id)) { Object.assign(models.find((x) => x.id === c.id), { label: c.label, featured: true }); continue; }
+    // provider answered and this curated model was not in the answer: it would 404, leave it out
+    if (discoveredProviders.has(c.provider)) continue;
+    models.push({ ...c, available: haveKey(c.provider) && !found.errors[c.provider] ? true : false, source: 'curated', note: found.errors[c.provider] ? `could not list models: ${found.errors[c.provider]}` : undefined });
+  }
+  return { models, errors: found.errors };
 });
 
 ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps }) => {

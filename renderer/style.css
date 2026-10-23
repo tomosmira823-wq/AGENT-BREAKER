@@ -129,7 +129,11 @@ body.panel-hidden .dock { border-right: 0; }
 .row .sub { color: var(--dim); font-size: 11px; }
 .runs .row { grid-template-columns: minmax(0, 1fr) auto; }
 #model-list .row { grid-template-columns: 14px minmax(0, 1fr) auto; }
-.hint { color: var(--dim); font-size: 11.5px; padding: 0 14px 10px; }
+.hint { color: var(--dim); font-size: 11.5px; padding: 6px 14px 10px; line-height: 1.4; }
+.filter { margin: 0 14px 6px; width: calc(100% - 28px); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 5px 8px; font: inherit; font-size: 12px; outline: none; }
+.filter:focus { border-color: var(--paint); }
+.group-head { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 6px 3px; color: var(--muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.group-head .sub { color: var(--dim); font-weight: 400; font-size: 11px; }
 .empty { color: var(--dim); padding: 6px; font-size: 12px; }
 .dock-toggle {
   position: absolute; left: var(--dock); top: calc(var(--bar) + 10px); width: 18px; height: 34px;

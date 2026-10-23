@@ -13,6 +13,7 @@ import { runMatrix } from './runner.js';
 import { markdownReport, consoleTable } from './report.js';
 import { providerAvailable, parseModelSpec } from './providers/index.js';
 import { CATEGORIES } from './traps.js';
+import { discoverAll } from './providers/discover.js';
 
 const C = {
   reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m',
@@ -63,6 +64,19 @@ async function main() {
     for (const s of filterTier(loadAllScenarios(), args)) {
       console.log(`${paint('bold', s.id.padEnd(22))} ${s.title.padEnd(28)} ${paint('dim', CATEGORIES[s.category]?.short || s.category)}  ${paint('dim', s.difficulty || '')}`);
     }
+    return;
+  }
+
+  if (cmd === 'models') {
+    const { models, errors } = await discoverAll(env);
+    if (!models.length && !Object.keys(errors).length) console.log(paint('yellow', 'No API keys in .env, so nothing to list. Add keys and run again.'));
+    let last = '';
+    for (const m of models) {
+      if (m.provider !== last) { console.log(paint('bold', '\n' + m.provider)); last = m.provider; }
+      console.log('  ' + m.id.padEnd(44) + paint('dim', m.label));
+    }
+    for (const [p, e] of Object.entries(errors)) if (p !== 'ollama') console.log(paint('red', `\n${p}: ${e}`));
+    console.log(paint('dim', '\nUse any of these with --models provider:model'));
     return;
   }
 
@@ -134,6 +148,7 @@ async function main() {
 
   list                                   list scenarios
   list [--tier easy|medium|hard]         list scenarios (optionally one tier)
+  models                                 list every model your API keys can use
   run [--all] [--scenario a,b] [--tier hard] [--models p:m,p:m] [--steps N] [--quiet]
   report runs/<file>.json                reprint the markdown report
 

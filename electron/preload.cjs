@@ -8,7 +8,7 @@ function on(channel, fn) {
 
 contextBridge.exposeInMainWorld('lab', {
   scenarios: () => ipcRenderer.invoke('lab:scenarios'),
-  models: () => ipcRenderer.invoke('lab:models'),
+  models: (opts) => ipcRenderer.invoke('lab:models', opts),
   run: (opts) => ipcRenderer.invoke('lab:run', opts),
   cancel: () => ipcRenderer.invoke('lab:cancel'),
   listRuns: () => ipcRenderer.invoke('lab:list-runs'),
