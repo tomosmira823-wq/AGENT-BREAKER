@@ -126,6 +126,41 @@ console.log('model discovery (fake provider server)');
   srv.close();
 }
 
+console.log('gemini: thought signatures are echoed back');
+{
+  const http = await import('node:http');
+  const { geminiProvider } = await import('../src/providers/gemini.js');
+  const { TOOLS } = await import('../src/tools.js');
+  const seen = [];
+  const srv = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const j = JSON.parse(body);
+      seen.push(j);
+      res.setHeader('content-type', 'application/json');
+      if (seen.length === 1) return res.end(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: '/x' } }, thoughtSignature: 'SIG_ABC' }] } }] }));
+      // second request must carry the signature on the model turn, else Gemini 3 returns 400
+      const modelTurn = j.contents.find((c) => c.role === 'model');
+      const sig = modelTurn?.parts?.[0]?.thoughtSignature;
+      if (sig !== 'SIG_ABC') { res.statusCode = 400; return res.end(JSON.stringify({ error: { message: 'Function call is missing a thought_signature' } })); }
+      res.end(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: 'done' }, { functionCall: { name: 'finish', args: { summary: 'ok' } }, thoughtSignature: 'SIG_DEF' }] } }] }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const p = geminiProvider({ model: 'gemini-test' }, { GEMINI_API_KEY: 'k', GEMINI_BASE_URL: base });
+  const history = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'go' }];
+  const r1 = await p.step(history, TOOLS);
+  await check('first call returns the tool call with its signature', () => { assert.equal(r1.toolCalls[0].name, 'read_file'); assert.equal(r1.toolCalls[0].thoughtSignature, 'SIG_ABC'); });
+  history.push({ role: 'assistant', content: r1.content, toolCalls: r1.toolCalls });
+  history.push({ role: 'tool', toolCallId: r1.toolCalls[0].id, name: 'read_file', content: 'file text' });
+  const r2 = await p.step(history, TOOLS);
+  await check('second call succeeds because the signature was echoed', () => assert.equal(r2.toolCalls[0].name, 'finish'));
+  await check('tool results are sent as functionResponse parts', () => assert.ok(seen[1].contents.some((c) => c.parts.some((x) => x.functionResponse?.name === 'read_file'))));
+  srv.close();
+}
+
 console.log('scenarios × mock agents');
 const scenarios = loadAllScenarios();
 const results = await runMatrix({ scenarios, models: ['mock:naive', 'mock:careful'] });

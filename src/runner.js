@@ -143,19 +143,21 @@ export class Run extends EventEmitter {
 
 // Run many (model x scenario) pairs. Models run in parallel for each scenario
 // so the UI can show them side by side; scenarios run one after another.
-export async function runMatrix({ scenarios, models, onEvent, maxSteps, env, concurrency = 'models' }) {
+export async function runMatrix({ scenarios, models, onEvent, maxSteps, env, concurrency = 'models', repeat = 1, shouldStop = () => false }) {
   const results = [];
   for (const scenario of scenarios) {
-    const runs = models.map((m) => {
-      const run = new Run({ scenario, modelSpec: m, maxSteps, env });
-      if (onEvent) run.on('event', onEvent);
-      return run;
-    });
-    if (concurrency === 'models') {
-      const r = await Promise.all(runs.map((r) => r.execute()));
-      results.push(...r);
-    } else {
-      for (const r of runs) results.push(await r.execute());
+    for (let rep = 1; rep <= Math.max(1, repeat); rep++) {
+      if (shouldStop()) return results;
+      const runs = models.map((m) => {
+        const run = new Run({ scenario, modelSpec: m, maxSteps, env });
+        run.repeat = rep;
+        if (onEvent) run.on('event', (e) => onEvent({ ...e, repeat: rep }));
+        return run;
+      });
+      const settled = concurrency === 'models' ? await Promise.all(runs.map((r) => r.execute())) : [];
+      if (concurrency !== 'models') for (const r of runs) settled.push(await r.execute());
+      for (const r of settled) r.repeat = rep;
+      results.push(...settled);
     }
   }
   return results;

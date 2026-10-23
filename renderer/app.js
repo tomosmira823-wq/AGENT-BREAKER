@@ -83,7 +83,8 @@ function renderLists() {
     }
   }
   if (!ml.children.length) ml.appendChild(el('div', 'empty', q ? 'No models match that.' : 'No models yet.'));
-  $('#run-meta').textContent = `${state.selScenarios.size} × ${state.selModels.size}`;
+  const reps = Number($('#repeat')?.value) || 1;
+  $('#run-meta').textContent = `${state.selScenarios.size} × ${state.selModels.size}${reps > 1 ? ` × ${reps}` : ''}`;
 }
 
 async function updateKeyHint() {
@@ -142,6 +143,7 @@ $('#keys-save').onclick = async () => {
 };
 $('#reload-models').onclick = () => reloadModels();
 $('#model-filter').oninput = () => renderLists();
+$('#repeat').onchange = () => renderLists();
 $('#drawer-close').onclick = () => $('#drawer').classList.remove('open');
 $('#panel-toggle').onclick = () => document.body.classList.toggle('panel-hidden');
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#drawer').classList.remove('open'); });
@@ -260,7 +262,7 @@ function handleEvent(ev) {
       refs.trapCount = 0;
       refs.traps.textContent = '0';
       refs.steps.textContent = '0';
-      refs.task.textContent = ev.title;
+      refs.task.textContent = (state.batchRepeat || 1) > 1 && ev.repeat ? `${ev.title} (run ${ev.repeat} of ${state.batchRepeat})` : ev.title;
       refs.task.title = ev.task;
       setConsoleState(refs, ev.model, 'working', 'working');
       scene.moveTo(ev.model, 'centre');
@@ -312,9 +314,10 @@ function handleEvent(ev) {
 }
 
 window.lab.onEvent(handleEvent);
-window.lab.onBatchStart(({ scenarios, models }) => {
+window.lab.onBatchStart(({ scenarios, models, repeat }) => {
   state.batchModels = models;
   state.batchScenarios = scenarios;
+  state.batchRepeat = repeat || 1;
   state.results = [];
   renderConsoles(models);
   renderResults();
@@ -355,7 +358,7 @@ $('#run-btn').onclick = async () => {
   $('#stop-btn').disabled = false;
   state.runs.clear();
   try {
-    await window.lab.run({ scenarioIds, modelSpecs });
+    await window.lab.run({ scenarioIds, modelSpecs, repeat: Number($('#repeat').value) || 1 });
   } catch (e) {
     $('#status').textContent = 'Run failed: ' + (e.message || e).toString().replace(/^Error invoking remote method 'lab:run': /, '');
     state.running = false;
@@ -393,7 +396,7 @@ function renderResults() {
   const wrap = $('#results');
   wrap.innerHTML = '';
   if (!state.batchModels.length) { $('#tray-sub').textContent = ''; return; }
-  const total = state.batchModels.length * state.batchScenarios.length;
+  const total = state.batchModels.length * state.batchScenarios.length * (state.batchRepeat || 1);
   $('#tray-sub').textContent = state.results.length < total ? `${state.results.length} of ${total} runs finished` : `${total} runs. Click a result to replay it.`;
   const table = el('table', 'grid');
   const labels = Object.fromEntries(state.models.map((m) => [m.id, m.label || m.id]));
@@ -404,14 +407,24 @@ function renderResults() {
     const tr = el('tr');
     tr.appendChild(el('td', 'scen', `${esc(sc.title)}<small>${esc(CATEGORY_SHORT[sc.category] || '')}</small>`));
     for (const mid of state.batchModels) {
-      const r = state.results.find((x) => x.scenario === sid && x.model === mid);
+      const rs = state.results.filter((x) => x.scenario === sid && x.model === mid).sort((p, q) => (p.repeat || 1) - (q.repeat || 1));
       const td = el('td', 'cell');
-      if (!r) td.innerHTML = `<span class="v"></span><span class="tags">waiting</span>`;
-      else {
+      if (!rs.length) td.innerHTML = `<span class="v"></span><span class="tags">waiting</span>`;
+      else if (rs.length === 1) {
+        const r = rs[0];
         const v = r.error ? 'error' : r.verdict;
         const fired = [...new Set((r.traps || []).filter((t) => t.fired && !t.good).map((t) => CATEGORY_SHORT[t.category] || t.category))];
         td.innerHTML = `<span class="v ${v}"></span>${r.error ? `<span class="tags">error</span>` : fired.length ? `<span class="tags">${esc(fired.join(', '))}</span>` : r.asked ? `<span class="asked">asked first</span>` : `<span class="tags">clean</span>`}`;
         td.onclick = () => replayRun(r.id);
+      } else {
+        // several repeats: one lamp per run, click a lamp to replay that run
+        const safe = rs.filter((r) => r.verdict === 'pass' && !r.error).length;
+        const errs = rs.filter((r) => r.verdict === 'error').length;
+        const fired = [...new Set(rs.flatMap((r) => (r.traps || []).filter((t) => t.fired && !t.good).map((t) => CATEGORY_SHORT[t.category] || t.category)))];
+        const reps = el('span', 'reps');
+        for (const r of rs) { const dot = el('span', `v ${r.error ? 'error' : r.verdict}`); dot.title = `Run ${r.repeat || 1}: ${r.error ? 'error' : r.verdict}`; dot.onclick = (e) => { e.stopPropagation(); replayRun(r.id); }; reps.appendChild(dot); }
+        td.appendChild(reps);
+        td.appendChild(el('span', 'tags', `${safe}/${rs.length - errs} safe${fired.length ? ', tripped ' + esc(fired.join(', ').toLowerCase()) : ''}`));
       }
       tr.appendChild(td);
     }

@@ -87,6 +87,11 @@ body.panel-hidden .bar { grid-template-columns: auto minmax(0, 1fr) auto; }
 .btn.quiet:hover:not(:disabled) { color: var(--text); border-color: var(--dim); }
 .run-icon { width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
 .run-meta { font-weight: 500; opacity: 0.75; }
+.repeat { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.repeat select { background: var(--bg); color: var(--text); border: 1px solid var(--line-2); border-radius: 5px; padding: 4px 6px; font: inherit; font-size: 12px; }
+.results td.cell .reps { display: inline-flex; gap: 4px; margin-right: 8px; vertical-align: -1px; }
+.results td.cell .reps .v { margin: 0; cursor: pointer; }
+.results td.cell .reps .v:hover { outline: 2px solid var(--paint); outline-offset: 1px; }
 
 /* ---------------------------------------------------------------- dock */
 .dock {

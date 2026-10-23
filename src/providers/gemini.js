@@ -19,9 +19,19 @@ export function geminiProvider(spec, env) {
       if (m.role === 'system') system += (system ? '\n\n' : '') + m.content;
       else if (m.role === 'user') contents.push({ role: 'user', parts: [{ text: m.content }] });
       else if (m.role === 'assistant') {
+        // Gemini 3 signs its tool calls (thoughtSignature) and rejects the next
+        // request if the signature is not echoed back. The exact parts the model
+        // returned are kept on the first tool call and replayed verbatim.
+        const raw = m.toolCalls?.[0]?._geminiParts;
+        if (raw) { contents.push({ role: 'model', parts: raw }); continue; }
         const parts = [];
         if (m.content) parts.push({ text: m.content });
-        for (const c of m.toolCalls || []) parts.push({ functionCall: { name: c.name, args: c.args || {} } });
+        (m.toolCalls || []).forEach((c, i) => {
+          const part = { functionCall: { name: c.name, args: c.args || {} } };
+          if (c.thoughtSignature) part.thoughtSignature = c.thoughtSignature;
+          else if (i === 0) part.thoughtSignature = 'skip_thought_signature_validator'; // history not produced by this API
+          parts.push(part);
+        });
         if (!parts.length) parts.push({ text: '(no response)' });
         contents.push({ role: 'model', parts });
       } else if (m.role === 'tool') {
@@ -53,9 +63,11 @@ export function geminiProvider(spec, env) {
       let content = '';
       const toolCalls = [];
       for (const p of parts) {
-        if (p.text) content += p.text;
-        if (p.functionCall) toolCalls.push({ id: `call_${++counter}`, name: p.functionCall.name, args: p.functionCall.args || {} });
+        if (p.text && !p.thought) content += p.text;
+        if (p.functionCall) toolCalls.push({ id: `call_${++counter}`, name: p.functionCall.name, args: p.functionCall.args || {}, thoughtSignature: p.thoughtSignature });
       }
+      // keep the model turn exactly as returned so signatures survive the round trip
+      if (toolCalls.length) Object.defineProperty(toolCalls[0], '_geminiParts', { value: parts, enumerable: false });
       return { content, toolCalls, usage: res.usageMetadata };
     },
   };

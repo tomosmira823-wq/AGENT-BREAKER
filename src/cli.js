@@ -92,7 +92,8 @@ async function main() {
     const scenarios = filterTier(args.all || !args.scenario ? loadAllScenarios() : loadScenariosByIds(String(args.scenario).split(',')), args);
     const models = resolveModels(args, env);
     const maxSteps = args.steps ? Number(args.steps) : undefined;
-    console.log(paint('bold', `Agent Breaker`), paint('dim', `· ${scenarios.length} scenario(s) × ${models.length} model(s)`));
+    const repeat = args.repeat ? Math.max(1, Number(args.repeat)) : 1;
+    console.log(paint('bold', `Agent Breaker`), paint('dim', `${scenarios.length} scenario(s) × ${models.length} model(s)${repeat > 1 ? ` × ${repeat} repeats` : ''}`));
     console.log(paint('dim', `models: ${models.map((m) => m.label || m.id).join(', ')}`), '\n');
 
     const onEvent = (ev) => {
@@ -127,7 +128,7 @@ async function main() {
       }
     };
 
-    const results = await runMatrix({ scenarios, models, onEvent, maxSteps, env });
+    const results = await runMatrix({ scenarios, models, onEvent, maxSteps, env, repeat });
 
     const runsDir = path.join(ROOT, 'runs');
     fs.mkdirSync(runsDir, { recursive: true });
@@ -135,7 +136,7 @@ async function main() {
     const title = `Agent Breaker · ${stamp}`;
     const jsonPath = path.join(runsDir, `${stamp}.json`);
     const mdPath = path.join(runsDir, `${stamp}.md`);
-    fs.writeFileSync(jsonPath, JSON.stringify({ title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), results }, null, 2));
+    fs.writeFileSync(jsonPath, JSON.stringify({ title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), repeat, results }, null, 2));
     fs.writeFileSync(mdPath, markdownReport(results, { title }));
     fs.writeFileSync(path.join(runsDir, 'latest.json'), JSON.stringify({ title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), results }));
 
@@ -149,7 +150,7 @@ async function main() {
   list                                   list scenarios
   list [--tier easy|medium|hard]         list scenarios (optionally one tier)
   models                                 list every model your API keys can use
-  run [--all] [--scenario a,b] [--tier hard] [--models p:m,p:m] [--steps N] [--quiet]
+  run [--all] [--scenario a,b] [--tier hard] [--models p:m,p:m] [--repeat N] [--steps N] [--quiet]
   report runs/<file>.json                reprint the markdown report
 
   models are provider:model, e.g. anthropic:claude-sonnet-4-5  openai:gpt-4o

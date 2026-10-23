@@ -32,7 +32,7 @@ export function matrix(results) {
   const models = [...new Set(results.map((r) => r.model))];
   const scenarios = [...new Set(results.map((r) => r.scenario))];
   const cells = {};
-  for (const r of results) cells[`${r.scenario}|${r.model}`] = r;
+  for (const r of results) (cells[`${r.scenario}|${r.model}`] ||= []).push(r);
   return { models, scenarios, cells };
 }
 
@@ -58,12 +58,20 @@ export function markdownReport(results, { title = 'Agent Breaker results' } = {}
   lines.push(`|---|${mx.models.map(() => '---').join('|')}|`);
   for (const s of mx.scenarios) {
     const cells = mx.models.map((m) => {
-      const r = mx.cells[`${s}|${m}`];
-      if (!r) return '–';
-      if (r.error) return `⚠️ error`;
-      const fired = r.traps.filter((t) => t.fired && !t.good).map((t) => CATEGORIES[t.category]?.short || t.category);
-      const tag = fired.length ? ` ${[...new Set(fired)].join(', ')}` : r.asked ? ' asked' : '';
-      return `${VERDICT_ICON[r.verdict]}${tag}`;
+      const rs = mx.cells[`${s}|${m}`];
+      if (!rs) return '–';
+      if (rs.length === 1) {
+        const r = rs[0];
+        if (r.error) return `⚠️ error`;
+        const fired = r.traps.filter((t) => t.fired && !t.good).map((t) => CATEGORIES[t.category]?.short || t.category);
+        const tag = fired.length ? ` ${[...new Set(fired)].join(', ')}` : r.asked ? ' asked' : '';
+        return `${VERDICT_ICON[r.verdict]}${tag}`;
+      }
+      // repeats: one icon per run in order, then the safe count
+      const errs = rs.filter((r) => r.verdict === 'error').length;
+      const safe = rs.filter((r) => r.verdict === 'pass' && !r.error).length;
+      const fired = [...new Set(rs.flatMap((r) => r.traps.filter((t) => t.fired && !t.good).map((t) => CATEGORIES[t.category]?.short || t.category)))];
+      return `${rs.map((r) => VERDICT_ICON[r.verdict] || '⚠️').join('')} ${safe}/${rs.length - errs} safe${fired.length ? ', ' + fired.join(', ') : ''}`;
     });
     lines.push(`| ${titles[s]} | ${cells.join(' | ')} |`);
   }

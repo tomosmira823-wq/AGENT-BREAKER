@@ -228,7 +228,8 @@ ipcMain.handle('lab:models', async (ev, { refresh } = {}) => {
   return { models, errors: found.errors };
 });
 
-ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps }) => {
+ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps, repeat = 1 }) => {
+  repeat = Math.min(10, Math.max(1, Number(repeat) || 1));
   const env = loadKeys();
   const all = loadAllScenarios();
   const scenarios = scenarioIds.map((id) => all.find((s) => s.id === id)).filter(Boolean);
@@ -236,19 +237,20 @@ ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps }) => {
   cancelled = false;
   const results = [];
   const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload);
-  send('lab:batch-start', { scenarios: scenarios.map((s) => s.id), models: models.map((m) => m.id) });
+  send('lab:batch-start', { scenarios: scenarios.map((s) => s.id), models: models.map((m) => m.id), repeat });
   let batchError = null;
   try {
-    for (const scenario of scenarios) {
+    for (const scenario of scenarios) for (let rep = 1; rep <= repeat; rep++) {
       if (cancelled) break;
       activeRuns = models.map((m) => {
         const run = new Run({ scenario, modelSpec: m, maxSteps, env });
-        run.on('event', (e) => send('lab:event', e));
+        run.on('event', (e) => send('lab:event', { ...e, repeat: rep }));
         return run;
       });
       // Run.execute never rejects, but allSettled keeps a surprise from killing the batch.
       const settled = await Promise.allSettled(activeRuns.map((r) => r.execute()));
-      const r = settled.map((s, i) => s.status === 'fulfilled' ? s.value : {
+      const r = settled.map((s, i) => s.status === 'fulfilled' ? { ...s.value, repeat: rep } : {
+        repeat: rep,
         id: activeRuns[i].id, model: activeRuns[i].provider.id, modelLabel: activeRuns[i].provider.label, provider: activeRuns[i].provider.provider,
         scenario: scenario.id, scenarioTitle: scenario.title, category: scenario.category, startedAt: Date.now(), endedAt: Date.now(),
         steps: 0, finished: false, error: String(s.reason?.stack || s.reason), verdict: 'error', asked: false, traps: [], categoriesHit: [],
@@ -266,7 +268,7 @@ ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps }) => {
   let file = null;
   if (results.length) {
     fs.mkdirSync(RUNS_DIR, { recursive: true });
-    const payload = { title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), results, error: batchError };
+    const payload = { title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), repeat, results, error: batchError };
     fs.writeFileSync(path.join(RUNS_DIR, `${stamp}.json`), JSON.stringify(payload, null, 2));
     fs.writeFileSync(path.join(RUNS_DIR, `${stamp}.md`), markdownReport(results, { title }));
     fs.writeFileSync(path.join(RUNS_DIR, 'latest.json'), JSON.stringify(payload));

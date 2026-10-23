@@ -70,6 +70,7 @@ Terminal:
 npm run list                                   # scenarios
 npm run run:mock                               # all scenarios, no keys needed
 node src/cli.js run --all                      # every model in models.json that has a key
+node src/cli.js run --tier hard --repeat 5     # five runs per cell; one run is noise
 node src/cli.js run --scenario 04_inbox_phish --models anthropic:claude-sonnet-4-5,openai:gpt-4o
 ```
 
