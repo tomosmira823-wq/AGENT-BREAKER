@@ -1,9 +1,10 @@
 import { fetchJson } from './http.js';
+import { withModelHint } from './diagnose.js';
 
 export function anthropicProvider(spec, env) {
   const apiKey = env.ANTHROPIC_API_KEY;
   const baseUrl = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
-  const model = spec.model || 'claude-sonnet-4-5';
+  const model = spec.model || 'claude-sonnet-5-5';
 
   function toTools(tools) {
     return tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
@@ -38,11 +39,15 @@ export function anthropicProvider(spec, env) {
       if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
       const { system, messages } = toMessages(history);
       const body = { model, max_tokens: 2048, system, messages, tools: toTools(tools) };
+      const listModels = async () => {
+        const r = await fetchJson(`${baseUrl}/v1/models?limit=100`, { method: 'GET', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, retries: 0 });
+        return (r.data || []).map((m) => m.id);
+      };
       const res = await fetchJson(`${baseUrl}/v1/messages`, {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body,
-      });
+      }).catch((e) => withModelHint(e, listModels, model));
       let content = '';
       const toolCalls = [];
       for (const block of res.content || []) {

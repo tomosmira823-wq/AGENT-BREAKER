@@ -26,7 +26,9 @@ export class Run extends EventEmitter {
     const ev = { type, t: Date.now(), run: this.id, model: this.provider.id, modelLabel: this.provider.label, scenario: this.scenario.id, ...data };
     this.events.push(ev);
     this.emit('event', ev);
-    this.emit(type, ev);
+    // Node throws on emit('error') when nothing listens, which took down every
+    // other model in the batch. Use a safe name for the typed event.
+    this.emit(type === 'error' ? 'run_error' : type, ev);
     return ev;
   }
 
@@ -43,6 +45,47 @@ export class Run extends EventEmitter {
   }
 
   async execute() {
+    try {
+      return await this.#execute();
+    } catch (e) {
+      // Last line of defence so one broken run can never reject the batch.
+      const message = String(e?.stack || e?.message || e);
+      try { this.emitEvent('error', { message, fatal: true }); } catch {}
+      const evaluation = evaluate(this.scenario, this.sandbox.actions);
+      const result = this.#result({ finished: false, error: message, evaluation });
+      try { this.emitEvent('run_end', { verdict: result.verdict, asked: result.asked, finished: false, error: message, categoriesHit: result.categoriesHit, traps: evaluation.traps }); } catch {}
+      return result;
+    }
+  }
+
+  #result({ finished, error, evaluation }) {
+    const sc = this.scenario;
+    // Blowing up before doing anything is not a pass. Keep fail/warn if traps did fire.
+    if (error && evaluation.verdict === 'pass') evaluation = { ...evaluation, verdict: 'error' };
+    return {
+      id: this.id,
+      model: this.provider.id,
+      modelLabel: this.provider.label,
+      provider: this.provider.provider,
+      scenario: sc.id,
+      scenarioTitle: sc.title,
+      category: sc.category,
+      startedAt: this.startedAt,
+      endedAt: Date.now(),
+      steps: this.history.filter((m) => m.role === 'assistant').length,
+      finished,
+      error,
+      ...evaluation,
+      actions: this.sandbox.actions,
+      events: this.events,
+      transcript: this.history,
+      sent: this.sandbox.sent,
+      httpLog: this.sandbox.httpLog,
+      filesAfter: this.sandbox.fs.snapshot(),
+    };
+  }
+
+  async #execute() {
     this.startedAt = Date.now();
     const sc = this.scenario;
     this.history.push({ role: 'system', content: (sc.system_prompt || SYSTEM_PROMPT) });
@@ -92,27 +135,7 @@ export class Run extends EventEmitter {
     }
 
     const evaluation = evaluate(sc, this.sandbox.actions);
-    const result = {
-      id: this.id,
-      model: this.provider.id,
-      modelLabel: this.provider.label,
-      provider: this.provider.provider,
-      scenario: sc.id,
-      scenarioTitle: sc.title,
-      category: sc.category,
-      startedAt: this.startedAt,
-      endedAt: Date.now(),
-      steps: this.history.filter((m) => m.role === 'assistant').length,
-      finished,
-      error,
-      ...evaluation,
-      actions: this.sandbox.actions,
-      events: this.events,
-      transcript: this.history,
-      sent: this.sandbox.sent,
-      httpLog: this.sandbox.httpLog,
-      filesAfter: this.sandbox.fs.snapshot(),
-    };
+    const result = this.#result({ finished, error, evaluation });
     this.emitEvent('run_end', { verdict: result.verdict, asked: result.asked, finished, error, categoriesHit: result.categoriesHit, traps: evaluation.traps });
     return result;
   }

@@ -63,10 +63,11 @@ function createWindow() {
     win.webContents.on('console-message', (e, level, message) => { if (level >= 3) errs.push(message); });
     win.webContents.once('did-finish-load', async () => {
       const finish = (extra) => { fs.writeFileSync(out, JSON.stringify({ ...extra, errors: errs }, null, 2)); app.exit(0); };
-      const timeout = new Promise((res) => setTimeout(() => res({ timedOut: true }), 15000));
+      const timeout = new Promise((res) => setTimeout(() => res({ timedOut: true }), process.env.AB_BATCH ? 45000 : 15000));
       const probe = win.webContents.executeJavaScript(`(async () => {
         window.__abClicks = ${process.env.AB_CLICKS ? 'true' : 'false'};
         window.__abKeys = ${process.env.AB_KEYS ? 'true' : 'false'};
+        window.__abBatch = ${process.env.AB_BATCH ? 'true' : 'false'};
         const r = { labType: typeof window.lab };
         await new Promise((res) => setTimeout(res, 2000));
         r.scenarioRows = document.querySelectorAll('#scenario-list .row').length;
@@ -82,6 +83,29 @@ function createWindow() {
           r.availableAfterSave = (await window.lab.models()).filter((x) => x.available).map((x) => x.id);
         }
         if (window.__abClicks) { document.querySelector('#reload-models').click(); await new Promise((res) => setTimeout(res, 1500)); r.afterRefresh = (await window.lab.models()).length; }
+        if (window.__abBatch) {
+          // run two scenarios with a broken model and a working one, then read the UI back
+          [...document.querySelectorAll('#scenario-list .row')].forEach((c, i) => { if ((i < 2) !== c.classList.contains('on')) c.click(); });
+          [...document.querySelectorAll('#model-list .row')].forEach((c) => { const want = /broken|careful/i.test(c.textContent); if (want !== c.classList.contains('on')) c.click(); });
+          const done = new Promise((res) => window.lab.onBatchDone(res));
+          document.querySelector('#run-btn').click();
+          const batch = await Promise.race([done, new Promise((res) => setTimeout(() => res({ timedOut: true }), 25000))]);
+          r.batch = { timedOut: !!batch.timedOut, error: batch.error || null, results: (batch.results || []).map((x) => x.model + ':' + x.verdict) };
+          r.statusAfter = document.querySelector('#status').textContent;
+          r.badges = [...document.querySelectorAll('.console')].map((c) => c.querySelector('.name, .title, .head')?.textContent.trim() + '=' + c.querySelector('.badge').textContent);
+          r.cells = [...document.querySelectorAll('td.cell')].map((c) => c.textContent.trim());
+          r.scoreCards = [...document.querySelectorAll('.score')].map((c) => c.textContent.replace(/\s+/g, ' ').trim());
+          // open the transcript for the broken model's console
+          const brokenConsole = [...document.querySelectorAll('.console')].find((c) => /broken/i.test(c.textContent));
+          brokenConsole?.querySelector('.open')?.click();
+          await new Promise((res) => setTimeout(res, 300));
+          r.drawer = { open: document.querySelector('#drawer').classList.contains('open'), title: document.querySelector('#drawer-title').textContent, sub: document.querySelector('#drawer-sub').textContent, body: document.querySelector('#drawer-body').innerText.replace(/\s+/g, ' ').slice(0, 600) };
+          document.querySelector('#drawer-close').click();
+          const okConsole = [...document.querySelectorAll('.console')].find((c) => /careful/i.test(c.textContent));
+          okConsole?.querySelector('.open')?.click();
+          await new Promise((res) => setTimeout(res, 300));
+          r.drawerOk = { sub: document.querySelector('#drawer-sub').textContent, steps: document.querySelectorAll('#drawer-body .msg.assistant, #drawer-body .msg.tool').length, body: document.querySelector('#drawer-body').innerText.replace(/\s+/g, ' ').slice(0, 300) };
+        }
         for (const u of ['renderer/app.js', 'vendor/three/addons/postprocessing/EffectComposer.js', 'vendor/three/addons/environments/RoomEnvironment.js']) {
           const res = await fetch('lab://app/' + u);
           r[u] = res.status;
@@ -90,6 +114,12 @@ function createWindow() {
       })()`).catch((e) => ({ hookError: String(e) }));
       const result = await Promise.race([probe, timeout]);
       result.envAfter = fs.existsSync(ENV_FILE()) ? fs.readFileSync(ENV_FILE(), 'utf8').replace(/=(.{4}).*/g, '=…$1') : null;
+      if (process.env.AB_SHOT) {
+        // reopen the broken model's transcript and photograph it
+        await win.webContents.executeJavaScript(`(() => { const c = [...document.querySelectorAll('.console')].find((x) => /broken/i.test(x.textContent)); c?.querySelector('.open')?.click(); })()`);
+        await new Promise((res) => setTimeout(res, 1200));
+        fs.writeFileSync(process.env.AB_SHOT, (await win.webContents.capturePage()).toPNG());
+      }
       finish(result);
     });
   }
@@ -182,26 +212,42 @@ ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps }) => {
   const results = [];
   const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload);
   send('lab:batch-start', { scenarios: scenarios.map((s) => s.id), models: models.map((m) => m.id) });
-  for (const scenario of scenarios) {
-    if (cancelled) break;
-    activeRuns = models.map((m) => {
-      const run = new Run({ scenario, modelSpec: m, maxSteps, env });
-      run.on('event', (e) => send('lab:event', e));
-      return run;
-    });
-    const r = await Promise.all(activeRuns.map((r) => r.execute()));
-    results.push(...r);
-    send('lab:scenario-done', { scenario: scenario.id, results: r.map(slim) });
+  let batchError = null;
+  try {
+    for (const scenario of scenarios) {
+      if (cancelled) break;
+      activeRuns = models.map((m) => {
+        const run = new Run({ scenario, modelSpec: m, maxSteps, env });
+        run.on('event', (e) => send('lab:event', e));
+        return run;
+      });
+      // Run.execute never rejects, but allSettled keeps a surprise from killing the batch.
+      const settled = await Promise.allSettled(activeRuns.map((r) => r.execute()));
+      const r = settled.map((s, i) => s.status === 'fulfilled' ? s.value : {
+        id: activeRuns[i].id, model: activeRuns[i].provider.id, modelLabel: activeRuns[i].provider.label, provider: activeRuns[i].provider.provider,
+        scenario: scenario.id, scenarioTitle: scenario.title, category: scenario.category, startedAt: Date.now(), endedAt: Date.now(),
+        steps: 0, finished: false, error: String(s.reason?.stack || s.reason), verdict: 'error', asked: false, traps: [], categoriesHit: [],
+        actions: [], events: [], transcript: [], sent: [], httpLog: [], filesAfter: {},
+      });
+      results.push(...r);
+      send('lab:scenario-done', { scenario: scenario.id, results: r.map(slim) });
+    }
+  } catch (e) {
+    batchError = String(e?.stack || e?.message || e);
   }
   activeRuns = [];
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const title = `Agent Breaker · ${stamp}`;
-  fs.mkdirSync(RUNS_DIR, { recursive: true });
-  const payload = { title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), results };
-  fs.writeFileSync(path.join(RUNS_DIR, `${stamp}.json`), JSON.stringify(payload, null, 2));
-  fs.writeFileSync(path.join(RUNS_DIR, `${stamp}.md`), markdownReport(results, { title }));
-  fs.writeFileSync(path.join(RUNS_DIR, 'latest.json'), JSON.stringify(payload));
-  const done = { file: `${stamp}.json`, title, results: results.map(slim) };
+  let file = null;
+  if (results.length) {
+    fs.mkdirSync(RUNS_DIR, { recursive: true });
+    const payload = { title, createdAt: Date.now(), models, scenarios: scenarios.map((s) => s.id), results, error: batchError };
+    fs.writeFileSync(path.join(RUNS_DIR, `${stamp}.json`), JSON.stringify(payload, null, 2));
+    fs.writeFileSync(path.join(RUNS_DIR, `${stamp}.md`), markdownReport(results, { title }));
+    fs.writeFileSync(path.join(RUNS_DIR, 'latest.json'), JSON.stringify(payload));
+    file = `${stamp}.json`;
+  }
+  const done = { file, title, results: results.map(slim), error: batchError, cancelled };
   send('lab:batch-done', done);
   return done;
 });

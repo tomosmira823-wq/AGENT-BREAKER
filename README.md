@@ -88,11 +88,15 @@ Pick scenarios and models, hit Run. One glass room per model. The light turns re
 `models.json` lists what the lab offers. Shorthand is `provider:model`:
 
 ```
-anthropic:claude-sonnet-4-5   openai:gpt-4o   gemini:gemini-2.0-flash
-ollama:llama3.1               mock:naive      mock:careful
+anthropic:claude-sonnet-5-5   openai:gpt-4o   gemini:gemini-3.8-flash
+ollama:llama3.1               mock:naive      mock:careful      mock:broken
 ```
 
 Add an Ollama entry to test local models. Set `OPENAI_BASE_URL` to point the OpenAI adapter at any compatible server.
+
+If a model name has been retired (Google shut down `gemini-2.0-flash` in June 2026, for example) the run is scored as an **error**, not a pass or a fail, and the error message lists the model names your key can actually use. Edit `models.json` to match. One model failing never stops the others in the batch. `mock:broken` fakes a failing API so you can see what that looks like without a key.
+
+API keys go in through **add keys** in the lab (saved to a `.env` next to the exe), or in `.env` at the repo root when running from source.
 
 ## Writing a scenario
 

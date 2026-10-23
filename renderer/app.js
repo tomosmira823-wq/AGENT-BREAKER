@@ -196,6 +196,7 @@ function handleEvent(ev) {
   run.events.push(ev);
   state.runs.set(ev.run, run);
   refs.currentRun = ev.run;
+  if (state.drawerRun === ev.run && $('#drawer').classList.contains('open') && ev.type !== 'step') queueMicrotask(() => openDrawer(ev.run, { keepScroll: true }));
   switch (ev.type) {
     case 'run_start':
       refs.log.innerHTML = '';
@@ -238,7 +239,9 @@ function handleEvent(ev) {
     }
     case 'error':
       consoleLog(refs, 'err', '⚠', '', ev.message);
-      pushScreen(refs, ev.model, '! ' + ev.message);
+      pushScreen(refs, ev.model, '! ' + ev.message.slice(0, 80));
+      setConsoleState(refs, ev.model, 'amber', 'error', 'error');
+      scene.flash(ev.model, 'amber');
       break;
     case 'run_end': {
       const v = ev.error ? 'error' : ev.verdict;
@@ -271,11 +274,14 @@ window.lab.onScenarioDone(({ results }) => {
   renderResults();
   renderScoreboard();
 });
-window.lab.onBatchDone(async ({ file }) => {
+window.lab.onBatchDone(async ({ file, error, cancelled, results }) => {
   state.running = false;
   $('#run-btn').disabled = false;
   $('#stop-btn').disabled = true;
-  $('#status').textContent = `Done. Saved ${file}. Click a cell in results to replay it.`;
+  const errs = (results || []).filter((r) => r.verdict === 'error' || (r.error && r.verdict === 'pass')).length;
+  if (error) $('#status').textContent = `Batch stopped early: ${error.split('\n')[0]}${file ? ` · partial results saved to ${file}` : ''}`;
+  else if (cancelled) $('#status').textContent = `Stopped. ${file ? `Saved ${file}.` : 'Nothing to save.'}`;
+  else $('#status').textContent = `Done. Saved ${file}.${errs ? ` ${errs} run${errs > 1 ? 's' : ''} hit an API error, open the transcript for details.` : ''} Click a cell in results to replay it.`;
   await refreshRunsList();
 });
 
@@ -293,10 +299,11 @@ $('#run-btn').onclick = async () => {
   try {
     await window.lab.run({ scenarioIds, modelSpecs });
   } catch (e) {
-    $('#status').textContent = 'Run failed: ' + e.message;
+    $('#status').textContent = 'Run failed: ' + (e.message || e).toString().replace(/^Error invoking remote method 'lab:run': /, '');
     state.running = false;
     $('#run-btn').disabled = false;
     $('#stop-btn').disabled = true;
+    for (const [id, refs] of state.consoles) if (refs.badge.textContent === 'working') setConsoleState(refs, id, 'amber', 'error', 'error');
   }
 };
 $('#stop-btn').onclick = () => { window.lab.cancel(); $('#status').textContent = 'Stopping after the current scenario…'; };
@@ -311,18 +318,20 @@ function renderScoreboard() {
   for (const id of models) {
     const label = (state.models.find((m) => m.id === id) || {}).label || id;
     const mine = state.results.filter((r) => r.model === id);
+    const errs = mine.filter((r) => r.verdict === 'error' || (r.error && r.verdict === 'pass')).length;
     const pass = mine.filter((r) => r.verdict === 'pass' && !r.error).length;
     const warn = mine.filter((r) => r.verdict === 'warn').length;
-    const fail = mine.filter((r) => r.verdict === 'fail' || r.error).length;
+    const fail = mine.filter((r) => r.verdict === 'fail').length;
+    const scored = mine.length - errs;
     const asked = mine.filter((r) => r.asked).length;
     const cats = { injection: 0, destructive: 0, leak: 0, scope: 0 };
     for (const r of mine) for (const t of r.traps || []) if (t.fired && !t.good && cats[t.category] != null) cats[t.category]++;
-    const pct = mine.length ? pass / mine.length : 1;
+    const pct = scored ? pass / scored : 1;
     const card = el('div', 'score');
     card.innerHTML = `
-      <div class="top"><div class="name">${esc(label)}</div><div class="safe ${pct >= 0.8 ? '' : pct >= 0.5 ? 'mid' : 'bad'}">${pass}<small>/${mine.length || total} safe</small></div></div>
+      <div class="top"><div class="name">${esc(label)}</div><div class="safe ${pct >= 0.8 ? '' : pct >= 0.5 ? 'mid' : 'bad'}">${pass}<small>/${scored || total} safe</small>${errs ? `<small class="errs" title="API errors: not counted as safe or unsafe"> · ${errs} error${errs > 1 ? 's' : ''}</small>` : ''}</div></div>
       <div class="cats"><span>inj <b>${cats.injection}</b></span><span>dest <b>${cats.destructive}</b></span><span>leak <b>${cats.leak}</b></span><span>scope <b>${cats.scope}</b></span><span>asked <b>${asked}</b></span></div>
-      <div class="bar"><i class="p" style="width:${(pass / total) * 100}%"></i><i class="w" style="width:${(warn / total) * 100}%"></i><i class="f" style="width:${(fail / total) * 100}%"></i></div>`;
+      <div class="bar"><i class="p" style="width:${(pass / total) * 100}%"></i><i class="w" style="width:${(warn / total) * 100}%"></i><i class="f" style="width:${(fail / total) * 100}%"></i><i class="e" style="width:${(errs / total) * 100}%"></i></div>`;
     wrap.appendChild(card);
   }
 }
@@ -433,16 +442,25 @@ function stopReplay() {
 }
 
 // ------------------------------------------------------------------ transcript drawer
-function openDrawer(runId) {
+function openDrawer(runId, { keepScroll = false } = {}) {
   const run = state.runs.get(runId);
   if (!run) return;
+  state.drawerRun = runId;
+  const prevScroll = keepScroll ? $('#drawer-body').scrollTop : 0;
   const r = run.result || state.results.find((x) => x.id === runId) || {};
   const label = (state.models.find((m) => m.id === run.model) || {}).label || run.model;
   const sc = state.scenarios.find((s) => s.id === run.scenario) || { title: run.scenario };
   $('#drawer-title').textContent = `${label} · ${sc.title}`;
-  $('#drawer-sub').textContent = r.verdict ? `${r.verdict.toUpperCase()}${r.asked ? ' · asked first' : ''} · ${r.steps || '?'} steps` : 'in progress';
+  const started = run.events.find((e) => e.type === 'run_start');
+  const errEv = run.events.find((e) => e.type === 'error');
+  $('#drawer-sub').textContent = r.verdict
+    ? `${r.verdict.toUpperCase()}${r.asked ? ' · asked first' : ''} · ${r.steps ?? 0} steps${r.error ? ' · error' : ''}`
+    : errEv ? 'error' : 'in progress';
   const body = $('#drawer-body');
   body.innerHTML = '';
+  if (started || sc.task) body.appendChild(el('div', 'msg user', `<div class="role">task</div>${esc(started?.task || sc.task || '')}`));
+  const errText = r.error || errEv?.message;
+  if (errText) body.appendChild(el('div', 'msg system error', `<div class="role">error</div>${esc(errText).slice(0, 2000)}`));
   if (r.traps) {
     const ts = el('div', 'traps-summary');
     for (const t of r.traps) ts.innerHTML += `<div class="trap-row"><span class="v ${t.fired ? 'hit' : ''} ${t.good ? 'good' : t.severity}"></span><span class="t ${t.fired ? 'hit' : ''}">${esc(t.title)} <small>· ${esc(CATEGORY_SHORT[t.category] || t.category)}</small></span></div>`;
@@ -465,7 +483,10 @@ function openDrawer(runId) {
       if (ev.type === 'trap') body.appendChild(el('div', `msg ${ev.trap.good ? 'user' : 'system'}`, `<div class="role">${ev.trap.good ? 'good call' : 'TRAP'}</div>${esc(ev.trap.title)}`));
     }
   }
+  const stepsShown = body.querySelectorAll('.msg.assistant, .msg.tool').length;
+  if (!stepsShown) body.appendChild(el('div', 'msg system muted', `<div class="role">note</div>${errText ? 'The model never got to take a step. Fix the error above (usually the API key or the model name in models.json) and run again.' : r.verdict ? 'This run finished without the model taking any steps.' : 'Waiting for the model\'s first step…'}`));
   $('#drawer').classList.add('open');
+  if (keepScroll) $('#drawer-body').scrollTop = prevScroll;
 }
 
 init();

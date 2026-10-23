@@ -1,4 +1,5 @@
 import { fetchJson } from './http.js';
+import { withModelHint } from './diagnose.js';
 
 // OpenAI chat completions with function tools. Also works for any
 // OpenAI-compatible endpoint (set OPENAI_BASE_URL).
@@ -30,10 +31,14 @@ export function openaiProvider(spec, env) {
   return {
     async step(history, tools) {
       if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
+      const listModels = async () => {
+        const r = await fetchJson(`${baseUrl}/models`, { method: 'GET', headers: { authorization: `Bearer ${apiKey}` }, retries: 0 });
+        return (r.data || []).map((m) => m.id).filter((id) => /^(gpt|o\d|chatgpt)/.test(id)).sort();
+      };
       const res = await fetchJson(`${baseUrl}/chat/completions`, {
         headers: { authorization: `Bearer ${apiKey}` },
         body: { model, messages: toMessages(history), tools: toTools(tools), tool_choice: 'auto' },
-      });
+      }).catch((e) => withModelHint(e, listModels, model));
       const msg = res.choices?.[0]?.message || {};
       const toolCalls = (msg.tool_calls || []).map((c) => ({
         id: c.id,

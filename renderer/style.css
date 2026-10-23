@@ -191,3 +191,11 @@ table.grid td.cell:hover { background: rgba(79,140,255,0.08); }
 .modal-msg { min-height: 16px; color: var(--red); font-size: 12px; margin-top: 6px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; align-items: center; margin-top: 8px; }
 .run-mini { background: var(--blue); color: #fff; border-radius: 9px; padding: 8px 14px; font-weight: 600; font-size: 12px; }
+
+/* error states */
+.console.amber .badge.error, .badge.error { background: rgba(255,170,60,0.18); color: var(--amber); }
+.score .bar .e { background: var(--amber); opacity: 0.55; }
+.score .errs { color: var(--amber); }
+.msg.system.error { border-left: 2px solid var(--amber); }
+.msg.system.error .role { color: var(--amber); }
+.msg.muted { opacity: 0.7; font-style: italic; }

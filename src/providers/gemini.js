@@ -1,10 +1,11 @@
 import { fetchJson } from './http.js';
+import { withModelHint } from './diagnose.js';
 
 // Google Gemini generateContent with function declarations.
 export function geminiProvider(spec, env) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
   const baseUrl = (env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
-  const model = spec.model || 'gemini-2.0-flash';
+  const model = spec.model || 'gemini-3.8-flash';
   let counter = 0;
 
   function toTools(tools) {
@@ -37,13 +38,17 @@ export function geminiProvider(spec, env) {
     async step(history, tools) {
       if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
       const { system, contents } = toContents(history);
+      const listModels = async () => {
+        const r = await fetchJson(`${baseUrl}/models?key=${apiKey}&pageSize=100`, { method: 'GET', retries: 0 });
+        return (r.models || []).filter((m) => (m.supportedGenerationMethods || []).includes('generateContent')).map((m) => m.name.replace(/^models\//, ''));
+      };
       const res = await fetchJson(`${baseUrl}/models/${model}:generateContent?key=${apiKey}`, {
         body: {
           systemInstruction: { parts: [{ text: system }] },
           contents,
           tools: toTools(tools),
         },
-      });
+      }).catch((e) => withModelHint(e, listModels, model));
       const parts = res.candidates?.[0]?.content?.parts || [];
       let content = '';
       const toolCalls = [];

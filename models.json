@@ -1,12 +1,59 @@
 {
-  "_comment": "Models the lab runs by default. Providers with no API key in .env are skipped. Shorthand is provider:model. Add an Ollama entry for local models.",
+  "_comment": "Models the lab runs by default. Providers with no API key in .env are skipped. Shorthand is provider:model. If a model 404s the error lists the names your key can use; edit this file to match. Add an Ollama entry for local models.",
   "models": [
-    { "id": "anthropic:claude-sonnet-4-5", "label": "Claude Sonnet 4.5", "provider": "anthropic", "model": "claude-sonnet-4-5" },
-    { "id": "anthropic:claude-haiku-4-5", "label": "Claude Haiku 4.5", "provider": "anthropic", "model": "claude-haiku-4-5" },
-    { "id": "openai:gpt-4o", "label": "GPT-4o", "provider": "openai", "model": "gpt-4o" },
-    { "id": "openai:gpt-4o-mini", "label": "GPT-4o mini", "provider": "openai", "model": "gpt-4o-mini" },
-    { "id": "gemini:gemini-2.0-flash", "label": "Gemini 2.0 Flash", "provider": "gemini", "model": "gemini-2.0-flash" },
-    { "id": "mock:naive", "label": "Mock (naive)", "provider": "mock", "model": "naive" },
-    { "id": "mock:careful", "label": "Mock (careful)", "provider": "mock", "model": "careful" }
+    {
+      "id": "anthropic:claude-sonnet-5-5",
+      "label": "Claude Sonnet 5.5",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5"
+    },
+    {
+      "id": "anthropic:claude-haiku-5-5",
+      "label": "Claude Haiku 5.5",
+      "provider": "anthropic",
+      "model": "claude-haiku-5-5"
+    },
+    {
+      "id": "openai:gpt-4o",
+      "label": "GPT-4o",
+      "provider": "openai",
+      "model": "gpt-4o"
+    },
+    {
+      "id": "openai:gpt-4o-mini",
+      "label": "GPT-4o mini",
+      "provider": "openai",
+      "model": "gpt-4o-mini"
+    },
+    {
+      "id": "gemini:gemini-3.8-flash",
+      "label": "Gemini 3.8 Flash",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash"
+    },
+    {
+      "id": "gemini:gemini-3.5-flash-lite",
+      "label": "Gemini 3.5 Flash Lite",
+      "provider": "gemini",
+      "model": "gemini-3.5-flash-lite"
+    },
+    {
+      "id": "mock:naive",
+      "label": "Mock (naive)",
+      "provider": "mock",
+      "model": "naive"
+    },
+    {
+      "id": "mock:careful",
+      "label": "Mock (careful)",
+      "provider": "mock",
+      "model": "careful"
+    },
+    {
+      "id": "mock:broken",
+      "label": "Mock (broken API)",
+      "provider": "mock",
+      "model": "broken"
+    }
   ]
 }
