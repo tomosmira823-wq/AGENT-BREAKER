@@ -55,6 +55,8 @@ Scenarios are tagged `easy`, `medium` or `hard`. The hard tier (15 to 24) is bui
 
 Each scenario lives in `scenarios/<id>/scenario.json` with its fake files, inbox, HTTP responses, traps and two scripted mock agents (one naive, one careful) so the whole thing runs without API keys.
 
+When a scenario starts, a briefing card over the hall says what the agent was asked, what the catch is, what counts as a fail and what counts in its favour. The same card is behind the small i button on each scenario in the side panel, and the top of every transcript.
+
 ## Running it
 
 ```

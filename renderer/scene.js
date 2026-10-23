@@ -28,6 +28,9 @@ const STATIONS = {
   centre: new THREE.Vector3(0, 0, 0.1),
 };
 
+// yaw the robot turns to at each station (0 faces the camera, PI faces the back wall)
+const STATION_FACE = { terminal: Math.PI, files: Math.PI * 0.85, mail: -0.15, net: 0.55, centre: 0 };
+
 export const TOOL_STATION = {
   list_files: 'files', read_file: 'files', write_file: 'files', delete_file: 'files', move_file: 'files',
   run_command: 'terminal',
@@ -35,6 +38,8 @@ export const TOOL_STATION = {
   http_request: 'net',
   ask_user: 'centre', finish: 'centre',
 };
+
+const lerpAngle = (a, b, t) => { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
 
 const mat = (color, { rough = 0.9, metal = 0.0, emissive = 0x000000, ei = 0 } = {}) =>
   new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, emissive, emissiveIntensity: ei });
@@ -190,17 +195,28 @@ export class LabScene {
     }
   }
 
+  // pixels on the left of the canvas covered by UI (briefing, scoreboard); the
+  // bays are framed into the space that is left
+  setLeftInset(px) {
+    this.leftInset = px || 0;
+    this.frameBays();
+  }
+
   frameBays() {
     const n = Math.max(this.bays.length, 1);
     const span = n * BAY_W + (n - 1) * GAP;
     const aspect = this.camera.aspect || 1.6;
-    // distance so the whole row fits with a little margin
+    const W = this.canvas.clientWidth || 1000;
+    const free = Math.max(0.45, (W - (this.leftInset || 0)) / W); // fraction of the width available
     const fov = THREE.MathUtils.degToRad(this.camera.fov);
-    const need = (span / 2 + 1.2) / Math.tan(fov / 2) / aspect;
+    const need = (span / 2 + 1.2) / Math.tan(fov / 2) / (aspect * free);
     const dist = Math.max(8, need * 0.98);
     if (!this.focusBay) {
-      this.camGoal.set(0, dist * 0.27, dist);
-      this.camTarget.set(0, 0.7, -0.1);
+      // shift the view so the row is centred in the free part of the canvas
+      const worldW = 2 * dist * Math.tan(fov / 2) * aspect;
+      const shift = -((1 - free) / 2) * worldW;
+      this.camGoal.set(shift, dist * 0.27, dist);
+      this.camTarget.set(shift, 0.7, -0.1);
     }
   }
 
@@ -323,23 +339,70 @@ export class LabScene {
     mastBase.position.set(0.95, 0.03, 0.95);
     g.add(mastBase);
 
-    // --- the agent: a matte puck with one indicator ring ---
+    // --- the agent: a small worker robot ---
+    // torso, head with a visor, two arms, two legs. It walks between the
+    // props, turns to face what it is using, and the visor lights while busy.
     const agent = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.21, 0.12, 28), mat(0x6b7079, { rough: 0.45, metal: 0.35 }));
-    body.position.y = 0.06;
-    body.castShadow = true;
-    agent.add(body);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat(0xd8d3c8, { rough: 0.4, metal: 0.1 }));
-    dome.position.y = 0.12;
-    agent.add(dome);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 10, 48), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: COLOURS.paint, emissiveIntensity: 0.0, roughness: 0.4 }));
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.09;
-    agent.add(ring);
+    const shell = mat(0x9ea3ab, { rough: 0.5, metal: 0.25 });
+    const dark = mat(0x2a2d33, { rough: 0.6, metal: 0.2 });
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.2, 6, 14), shell);
+    torso.position.y = 0.42;
+    torso.castShadow = true;
+    agent.add(torso);
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.05), dark);
+    chest.position.set(0, 0.45, 0.1);
+    agent.add(chest);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 10), dark);
+    neck.position.y = 0.6;
+    agent.add(neck);
+    const head = new THREE.Group();
+    head.position.y = 0.7;
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.18), shell);
+    skull.castShadow = true;
+    head.add(skull);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.02), new THREE.MeshStandardMaterial({ color: 0x15171a, emissive: COLOURS.paint, emissiveIntensity: 0, roughness: 0.3 }));
+    visor.position.set(0, 0.01, 0.095);
+    head.add(visor);
+    const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 10), dark);
+    ear.rotation.z = Math.PI / 2;
+    ear.position.set(0.11, 0, 0);
+    head.add(ear, ear.clone().translateX(-0.22));
+    agent.add(head);
+    const limbs = {};
+    const armGeo = new THREE.CapsuleGeometry(0.03, 0.18, 4, 8);
+    const legGeo = new THREE.CapsuleGeometry(0.035, 0.16, 4, 8);
+    for (const side of [-1, 1]) {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(side * 0.15, 0.53, 0);
+      const arm = new THREE.Mesh(armGeo, shell);
+      arm.position.y = -0.11;
+      arm.castShadow = true;
+      shoulder.add(arm);
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), dark);
+      hand.position.y = -0.24;
+      shoulder.add(hand);
+      agent.add(shoulder);
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.06, 0.27, 0);
+      const leg = new THREE.Mesh(legGeo, dark);
+      leg.position.y = -0.1;
+      leg.castShadow = true;
+      hip.add(leg);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.03, 0.11), dark);
+      foot.position.set(0, -0.24, 0.02);
+      hip.add(foot);
+      agent.add(hip);
+      limbs[side === -1 ? 'L' : 'R'] = { shoulder, hip };
+    }
     agent.position.copy(STATIONS.centre);
+    agent.rotation.y = 0;
     g.add(agent);
     bay.agent = agent;
-    bay.ring = ring;
+    bay.head = head;
+    bay.visor = visor;
+    bay.limbs = limbs;
+    bay.walk = 0;
+    bay.faceYaw = 0;
     bay.agentGoal = STATIONS.centre.clone();
 
     // --- andon stack light on the back-right corner ---
@@ -523,6 +586,7 @@ export class LabScene {
     const b = this.bayFor(modelId);
     if (!b) return;
     b.agentGoal.copy(STATIONS[station] || STATIONS.centre);
+    b.faceYaw = STATION_FACE[station] ?? 0;
   }
 
   monitorText(modelId, lines) {
@@ -552,12 +616,38 @@ export class LabScene {
     this.camera.lookAt(this.camLook);
 
     for (const b of this.bays) {
-      // agent glides to its station, ring lights while it is working
-      b.agent.position.lerp(b.agentGoal, 1 - Math.exp(-dt * 4.5));
-      const moving = b.agent.position.distanceTo(b.agentGoal) > 0.02;
-      if (moving) b.agent.rotation.y += dt * 2.5;
+      // the robot walks to its station, faces the way it is going, then turns to the prop
+      const toGoal = b.agentGoal.clone().sub(b.agent.position);
+      const dist = toGoal.length();
+      const moving = dist > 0.03;
+      if (moving) {
+        const step = Math.min(dist, dt * 1.6);
+        b.agent.position.addScaledVector(toGoal.normalize(), step);
+        b.walk += dt * 9;
+        const travelYaw = Math.atan2(toGoal.x, toGoal.z);
+        b.agent.rotation.y = lerpAngle(b.agent.rotation.y, travelYaw, Math.min(1, dt * 8));
+      } else {
+        b.walk += (Math.round(b.walk / Math.PI) * Math.PI - b.walk) * Math.min(1, dt * 10);
+        b.agent.rotation.y = lerpAngle(b.agent.rotation.y, b.faceYaw, Math.min(1, dt * 5));
+      }
+      const swing = Math.sin(b.walk) * (moving ? 0.6 : 0);
+      b.limbs.L.hip.rotation.x = swing;
+      b.limbs.R.hip.rotation.x = -swing;
+      b.limbs.L.shoulder.rotation.x = -swing * 0.7;
+      b.limbs.R.shoulder.rotation.x = swing * 0.7;
       const busy = b.state === 'working' || b.state === 'thinking';
-      b.ring.material.emissiveIntensity += ((busy ? 1.4 : 0) - b.ring.material.emissiveIntensity) * Math.min(1, dt * 6);
+      // working at a prop: arms forward a little, head down; thinking: head tilts
+      const atWork = busy && !moving && b.faceYaw !== 0;
+      b.limbs.L.shoulder.rotation.x += ((atWork ? -0.9 : 0) - 0) * 0.5 + (atWork ? Math.sin(now / 180) * 0.08 : 0);
+      b.limbs.R.shoulder.rotation.x += (atWork ? -0.9 : 0) * 0.5 + (atWork ? Math.cos(now / 160) * 0.08 : 0);
+      b.head.rotation.x += (((atWork ? 0.35 : 0)) - b.head.rotation.x) * Math.min(1, dt * 5);
+      b.head.rotation.z += (((b.state === 'thinking' && !moving ? 0.18 : 0)) - b.head.rotation.z) * Math.min(1, dt * 4);
+      b.visor.material.emissiveIntensity += ((busy ? 1.6 : b.state === 'green' ? 0.5 : 0) - b.visor.material.emissiveIntensity) * Math.min(1, dt * 6);
+      if (b.state === 'green') b.visor.material.emissive.setHex(COLOURS.green);
+      else if (b.state === 'red') b.visor.material.emissive.setHex(COLOURS.red);
+      else b.visor.material.emissive.setHex(COLOURS.paint);
+      // a failed run: the robot stops and looks at the floor
+      if (b.state === 'red' && !moving) b.head.rotation.x += (0.5 - b.head.rotation.x) * Math.min(1, dt * 3);
       // lamps
       for (const [name, lamp] of Object.entries(b.lamps)) {
         const on = (b.lampLit || []).includes(name);

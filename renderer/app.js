@@ -51,9 +51,9 @@ function renderLists() {
   sl.innerHTML = '';
   for (const s of state.scenarios) {
     const on = state.selScenarios.has(s.id);
-    const row = el('div', 'row' + (on ? ' on' : ''), `<span class="tick">${on ? '✓' : ''}</span><span class="cat ${s.category}"></span><span class="lbl">${esc(s.title)}</span><span class="sub">${esc(s.difficulty || '')}</span>`);
-    row.title = s.description;
+    const row = el('div', 'row' + (on ? ' on' : ''), `<span class="tick">${on ? '✓' : ''}</span><span class="cat ${s.category}"></span><span class="lbl">${esc(s.title)}</span><span class="sub">${esc(s.difficulty || '')}</span><button class="info" title="What this scenario tests" aria-label="Details for ${esc(s.title)}">i</button>`);
     row.onclick = () => { on ? state.selScenarios.delete(s.id) : state.selScenarios.add(s.id); renderLists(); };
+    row.querySelector('.info').onclick = (e) => { e.stopPropagation(); openScenarioDetails(s); };
     sl.appendChild(row);
   }
   const ml = $('#model-list');
@@ -122,6 +122,46 @@ $('#drawer-close').onclick = () => $('#drawer').classList.remove('open');
 $('#panel-toggle').onclick = () => document.body.classList.toggle('panel-hidden');
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#drawer').classList.remove('open'); });
 
+// ------------------------------------------------------------------ briefing: what this test is
+const SEVERITY_WORD = { high: 'fails', medium: 'warning' };
+function briefingHtml(s) {
+  const bad = (s.traps || []).filter((t) => !t.good);
+  const good = (s.traps || []).filter((t) => t.good);
+  const trapRow = (t) => `<li><span class="lamp ${t.good ? 'pass' : t.severity === 'high' ? 'fail' : 'warn'}"></span><span>${esc(t.title)}</span><small>${esc(t.good ? 'good sign' : CATEGORY_SHORT[t.category] || t.category)}</small></li>`;
+  return `
+    <div class="brief-block"><div class="brief-label">The agent is asked</div><blockquote class="brief-task">${esc(s.task)}</blockquote></div>
+    <div class="brief-block"><div class="brief-label">The catch</div><p>${esc(s.description || '')}</p></div>
+    <div class="brief-block"><div class="brief-label">It fails if it</div><ul class="brief-traps">${bad.map(trapRow).join('')}</ul></div>
+    ${good.length ? `<div class="brief-block"><div class="brief-label">Counts in its favour</div><ul class="brief-traps">${good.map(trapRow).join('')}</ul></div>` : ''}`;
+}
+function showBriefing(scenarioId) {
+  const s = state.scenarios.find((x) => x.id === scenarioId);
+  const box = $('#briefing');
+  if (!s) { box.hidden = true; return; }
+  const idx = state.batchScenarios.indexOf(scenarioId);
+  $('#briefing-kicker').textContent = `${idx >= 0 ? `Scenario ${idx + 1} of ${state.batchScenarios.length}` : 'Scenario'}, ${s.difficulty || 'easy'}, ${(CATEGORY_SHORT[s.category] || s.category || '').toLowerCase()}`;
+  $('#briefing-title').textContent = s.title;
+  $('#briefing-body').innerHTML = briefingHtml(s);
+  box.hidden = false;
+  state.briefingFor = scenarioId;
+  updateInset();
+}
+$('#briefing-toggle').onclick = () => { $('#briefing').classList.toggle('collapsed'); updateInset(); };
+// tell the hall how much of its left edge the briefing covers
+function updateInset() {
+  const b = $('#briefing');
+  const covered = !b.hidden && !b.classList.contains('collapsed') ? b.getBoundingClientRect().width + 28 : 0;
+  scene.setLeftInset(covered);
+}
+window.addEventListener('resize', updateInset);
+function openScenarioDetails(s) {
+  $('#drawer-title').textContent = s.title;
+  $('#drawer-sub').textContent = `${s.difficulty || 'easy'} scenario, ${(CATEGORY_SHORT[s.category] || s.category || '').toLowerCase()}`;
+  $('#drawer-body').innerHTML = `<div class="brief-in-drawer">${briefingHtml(s)}</div>`;
+  state.drawerRun = null;
+  $('#drawer').classList.add('open');
+}
+
 // ------------------------------------------------------------------ consoles (one per room)
 function renderConsoles(modelIds) {
   const wrap = $('#consoles');
@@ -143,6 +183,8 @@ function renderConsoles(modelIds) {
     state.consoles.set(m.id, refs);
   }
   $('#range-empty').hidden = models.length > 0;
+  if (!models.length) { $('#briefing').hidden = true; state.briefingFor = null; }
+  updateInset();
   showTab('live');
 }
 
@@ -188,6 +230,7 @@ function handleEvent(ev) {
   if (state.drawerRun === ev.run && $('#drawer').classList.contains('open') && ev.type !== 'step') queueMicrotask(() => openDrawer(ev.run, { keepScroll: true }));
   switch (ev.type) {
     case 'run_start':
+      if (state.briefingFor !== ev.scenario) showBriefing(ev.scenario);
       refs.log.innerHTML = '';
       refs.screen = [];
       refs.trapCount = 0;
@@ -453,6 +496,7 @@ function openDrawer(runId, { keepScroll = false } = {}) {
   const body = $('#drawer-body');
   body.innerHTML = '';
   if (started || sc.task) body.appendChild(el('div', 'msg user', `<div class="role">task</div><div class="body">${esc(started?.task || sc.task || '')}</div>`));
+  if (sc.description) body.appendChild(el('div', 'msg system', `<div class="role">the catch</div><div class="body">${esc(sc.description)}</div>`));
   const errText = r.error || errEv?.message;
   if (errText) body.appendChild(el('div', 'msg system error', `<div class="role">error</div><div class="body">${esc(errText).slice(0, 2000)}</div>`));
   if (r.traps) {

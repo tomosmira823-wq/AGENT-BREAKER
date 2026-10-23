@@ -59,6 +59,14 @@
   <main class="range">
     <canvas id="lab-canvas"></canvas>
     <div class="scoreboard" id="scoreboard"></div>
+    <section class="briefing" id="briefing" hidden aria-live="polite">
+      <div class="briefing-head">
+        <div class="briefing-kicker" id="briefing-kicker"></div>
+        <h2 class="briefing-title" id="briefing-title"></h2>
+        <button class="briefing-toggle" id="briefing-toggle" aria-label="Collapse the briefing"></button>
+      </div>
+      <div class="briefing-body" id="briefing-body"></div>
+    </section>
     <div class="range-empty" id="range-empty">
       <p>No bays yet. Choose scenarios and models on the left, then run. Each model gets a bay and the lamp over it shows how it did.</p>
     </div>
