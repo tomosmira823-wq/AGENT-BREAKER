@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('lab', {
   openRunsFolder: () => ipcRenderer.invoke('lab:open-runs-folder'),
   openEnv: () => ipcRenderer.invoke('lab:open-env'),
   paths: () => ipcRenderer.invoke('lab:paths'),
+  keyStatus: () => ipcRenderer.invoke('lab:key-status'),
+  saveKeys: (keys) => ipcRenderer.invoke('lab:save-keys', keys),
   onEvent: (fn) => on('lab:event', fn),
   onBatchStart: (fn) => on('lab:batch-start', fn),
   onScenarioDone: (fn) => on('lab:scenario-done', fn),

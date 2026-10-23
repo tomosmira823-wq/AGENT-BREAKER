@@ -8,6 +8,7 @@ import { loadAllScenarios } from '../src/scenarios.js';
 import { Run } from '../src/runner.js';
 import { markdownReport } from '../src/report.js';
 import { providerAvailable, parseModelSpec } from '../src/providers/index.js';
+import { mergeKeys, KEY_NAMES } from '../src/keys.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // When packaged the app folder is read-only (asar), so runs and .env live next
@@ -65,12 +66,21 @@ function createWindow() {
       const timeout = new Promise((res) => setTimeout(() => res({ timedOut: true }), 15000));
       const probe = win.webContents.executeJavaScript(`(async () => {
         window.__abClicks = ${process.env.AB_CLICKS ? 'true' : 'false'};
+        window.__abKeys = ${process.env.AB_KEYS ? 'true' : 'false'};
         const r = { labType: typeof window.lab };
         await new Promise((res) => setTimeout(res, 2000));
         r.scenarioRows = document.querySelectorAll('#scenario-list .row').length;
         r.modelRows = document.querySelectorAll('#model-list .row').length;
         r.scenariosIpc = (await window.lab.scenarios()).length;
         r.modelsIpc = (await window.lab.models()).length;
+        if (window.__abKeys) {
+          document.querySelector('#open-env').click(); await new Promise((res) => setTimeout(res, 800));
+          r.dialogOpened = !document.querySelector('#keys-modal').hidden;
+          document.querySelector('#key-OPENAI_API_KEY').value = 'sk-test-FAKE-0000';
+          document.querySelector('#keys-save').click(); await new Promise((res) => setTimeout(res, 1500));
+          r.dialogClosed = document.querySelector('#keys-modal').hidden;
+          r.availableAfterSave = (await window.lab.models()).filter((x) => x.available).map((x) => x.id);
+        }
         if (window.__abClicks) { document.querySelector('#reload-models').click(); await new Promise((res) => setTimeout(res, 1500)); r.afterRefresh = (await window.lab.models()).length; }
         for (const u of ['renderer/app.js', 'vendor/three/addons/postprocessing/EffectComposer.js', 'vendor/three/addons/environments/RoomEnvironment.js']) {
           const res = await fetch('lab://app/' + u);
@@ -79,6 +89,7 @@ function createWindow() {
         return r;
       })()`).catch((e) => ({ hookError: String(e) }));
       const result = await Promise.race([probe, timeout]);
+      result.envAfter = fs.existsSync(ENV_FILE()) ? fs.readFileSync(ENV_FILE(), 'utf8').replace(/=(.{4}).*/g, '=…$1') : null;
       finish(result);
     });
   }
@@ -225,6 +236,24 @@ ipcMain.handle('lab:load-run', (ev, file) => {
 
 ipcMain.handle('lab:open-runs-folder', () => { fs.mkdirSync(RUNS_DIR, { recursive: true }); return shell.openPath(RUNS_DIR); });
 ipcMain.handle('lab:open-env', () => { const f = ENV_FILE(); if (!fs.existsSync(f)) { try { fs.copyFileSync(path.join(PACKAGED ? process.resourcesPath : ROOT, '.env.example'), f); } catch { fs.writeFileSync(f, 'ANTHROPIC_API_KEY=\nOPENAI_API_KEY=\nGEMINI_API_KEY=\n'); } } return shell.openPath(f); });
+
+// Keys entered in the lab dialog. The renderer only gets set/not-set, never the value back.
+ipcMain.handle('lab:key-status', () => {
+  const env = loadKeys();
+  return KEY_NAMES.map((name) => ({ name, set: !!(env[name] || '').trim() }));
+});
+
+ipcMain.handle('lab:save-keys', (ev, keys) => {
+  const file = ENV_FILE();
+  try {
+    const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    fs.writeFileSync(file, mergeKeys(current, keys || {}));
+    for (const name of KEY_NAMES) { const v = String((keys || {})[name] ?? '').trim(); if (v) process.env[name] = v; }
+    return { file };
+  } catch (e) {
+    return { error: e.message, file };
+  }
+});
 
 ipcMain.handle('lab:report', (ev, file) => {
   const md = path.join(RUNS_DIR, path.basename(file).replace(/\.json$/, '.md'));

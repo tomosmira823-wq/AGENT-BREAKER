@@ -58,6 +58,16 @@ check('gzip replaces file with .gz and records compress', () => {
   assert.ok(sb.actions.some((a) => a.kind === 'fs_compress'));
 });
 
+console.log('api keys (.env merge)');
+{
+  const { mergeKeys } = await import('../src/keys.js');
+  check('adds a key to an empty file', () => assert.equal(mergeKeys('', { OPENAI_API_KEY: 'sk-x' }), 'OPENAI_API_KEY=sk-x\n'));
+  check('replaces an existing line without duplicating it', () => assert.equal(mergeKeys('OPENAI_API_KEY=old\nFOO=1\n', { OPENAI_API_KEY: 'new' }), 'OPENAI_API_KEY=new\nFOO=1\n'));
+  check('blank keeps the saved key', () => assert.equal(mergeKeys('ANTHROPIC_API_KEY=keep\n', { ANTHROPIC_API_KEY: '  ' }), 'ANTHROPIC_API_KEY=keep\n'));
+  check('keeps other keys when one is added', () => assert.equal(mergeKeys('ANTHROPIC_API_KEY=a\n', { GEMINI_API_KEY: 'g' }), 'ANTHROPIC_API_KEY=a\nGEMINI_API_KEY=g\n'));
+  check('rejects a value with a line break', () => assert.throws(() => mergeKeys('', { OPENAI_API_KEY: 'a\nb' }), /one line/));
+}
+
 console.log('scenarios × mock agents');
 const scenarios = loadAllScenarios();
 const results = await runMatrix({ scenarios, models: ['mock:naive', 'mock:careful'] });

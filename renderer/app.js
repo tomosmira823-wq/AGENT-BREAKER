@@ -90,7 +90,33 @@ $('#sel-none').onclick = () => { state.selScenarios.clear(); renderLists(); };
 // tier buttons: select exactly the scenarios of that difficulty
 document.querySelectorAll('[data-tier]').forEach((b) => b.onclick = () => { state.selScenarios = new Set(state.scenarios.filter((s) => (s.difficulty || 'easy') === b.dataset.tier).map((s) => s.id)); renderLists(); });
 $('#runs-folder').onclick = () => window.lab.openRunsFolder();
-$('#open-env').onclick = () => window.lab.openEnv();
+$('#open-env').onclick = () => openKeys();
+const KEY_FIELDS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'];
+async function openKeys() {
+  const paths = await window.lab.paths();
+  const status = await window.lab.keyStatus();
+  $('#keys-file').textContent = paths.envFile;
+  for (const s of status) {
+    $(`#key-${s.name}`).value = '';
+    $(`#state-${s.name}`).textContent = s.set ? 'saved' : 'not set';
+  }
+  $('#keys-msg').textContent = '';
+  $('#keys-modal').hidden = false;
+  $('#key-ANTHROPIC_API_KEY').focus();
+}
+const closeKeys = () => { $('#keys-modal').hidden = true; };
+$('#keys-close').onclick = closeKeys;
+$('#keys-cancel').onclick = closeKeys;
+$('#keys-save').onclick = async () => {
+  const keys = {};
+  for (const n of KEY_FIELDS) keys[n] = $(`#key-${n}`).value;
+  if (!Object.values(keys).some((v) => v.trim())) { $('#keys-msg').textContent = 'Paste at least one key first.'; return; }
+  const r = await window.lab.saveKeys(keys);
+  if (r.error) { $('#keys-msg').textContent = 'Could not save: ' + r.error; return; }
+  closeKeys();
+  await reloadModels();
+  $('#status').textContent = 'Keys saved. Pick a model and run.';
+};
 $('#reload-models').onclick = () => reloadModels();
 $('#drawer-close').onclick = () => $('#drawer').classList.remove('open');
 $('#panel-toggle').onclick = () => document.body.classList.toggle('panel-hidden');

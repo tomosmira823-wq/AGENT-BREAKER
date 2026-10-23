@@ -80,6 +80,19 @@
     <div class="drawer-body" id="drawer-body"></div>
   </aside>
 
+  <!-- API key dialog -->
+  <div class="modal" id="keys-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><span>API keys</span><button class="icon" id="keys-close">✕</button></div>
+      <p class="modal-note">Paste a key and press save. It goes into <span class="mono" id="keys-file"></span>. Leave a box empty to keep the key already saved.</p>
+        <label class="key-field"><span>Anthropic</span><input type="password" id="key-ANTHROPIC_API_KEY" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" /><span class="key-state" id="state-ANTHROPIC_API_KEY"></span></label>
+        <label class="key-field"><span>OpenAI</span><input type="password" id="key-OPENAI_API_KEY" autocomplete="off" spellcheck="false" placeholder="sk-…" /><span class="key-state" id="state-OPENAI_API_KEY"></span></label>
+        <label class="key-field"><span>Gemini</span><input type="password" id="key-GEMINI_API_KEY" autocomplete="off" spellcheck="false" placeholder="AI…" /><span class="key-state" id="state-GEMINI_API_KEY"></span></label>
+      <div class="modal-msg" id="keys-msg"></div>
+      <div class="modal-actions"><button class="link" id="keys-cancel">cancel</button><button class="run-mini" id="keys-save">save keys</button></div>
+    </div>
+  </div>
+
   <script type="module" src="./app.js"></script>
 </body>
 </html>
