@@ -49,7 +49,7 @@ function createWindow() {
       sandbox: false,
     },
   });
-  win.loadURL('lab://app/renderer/index.html');
+  win.loadURL('lab://app/renderer/index.html' + (process.env.AB_NOPOST ? '?nopost' : ''));
   win.on('closed', () => (win = null));
 
   // Headless smoke test (used by `npm run smoke`): run the mock agents on two
@@ -63,16 +63,18 @@ function createWindow() {
       await new Promise((r) => setTimeout(r, 1500));
       await win.webContents.executeJavaScript(`
         (async () => {
-          const chips = [...document.querySelectorAll('#scenario-chips .chip')];
+          const chips = [...document.querySelectorAll('#scenario-list .row')];
           chips.forEach((c, i) => { if ((i < 2) !== c.classList.contains('on')) c.click(); });
-          const mchips = [...document.querySelectorAll('#model-chips .chip')];
+          const mchips = [...document.querySelectorAll('#model-list .row')];
           mchips.forEach((c) => { const want = /mock/i.test(c.textContent); if (want !== c.classList.contains('on')) c.click(); });
           document.querySelector('#run-btn').click();
         })();`);
-      await new Promise((r) => setTimeout(r, 9000));
+      await new Promise((r) => setTimeout(r, 14000));
+      await win.webContents.executeJavaScript('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
+      await new Promise((r) => setTimeout(r, 1500));
       const img = await win.webContents.capturePage();
       fs.writeFileSync(process.env.AB_SMOKE, img.toPNG());
-      const summary = await win.webContents.executeJavaScript(`JSON.stringify({ rooms: document.querySelectorAll('.room').length, cells: [...document.querySelectorAll('td.cell')].map(c => c.textContent.trim()), caption: document.querySelector('#lab-caption').textContent, badges: [...document.querySelectorAll('.room .badge')].map(b => b.textContent) })`);
+      const summary = await win.webContents.executeJavaScript(`JSON.stringify({ rooms: document.querySelectorAll('.console').length, cells: [...document.querySelectorAll('td.cell')].map(c => c.textContent.trim()), caption: document.querySelector('#status').textContent, badges: [...document.querySelectorAll('.console .badge')].map(b => b.textContent) })`);
       fs.writeFileSync(process.env.AB_SMOKE.replace(/\.png$/, '') + '.json', JSON.stringify({ summary: JSON.parse(summary), errors }, null, 2));
       app.exit(errors.length ? 1 : 0);
     });

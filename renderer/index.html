@@ -3,55 +3,79 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' lab:; script-src 'self' lab:; style-src 'self' lab: 'unsafe-inline'; img-src 'self' lab: data:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' lab:; script-src 'self' lab: 'sha256-q6r0770JtVIRJf9PSD4+Ii79dSCPXGYv58Yh9YMlSo0='; style-src 'self' lab: 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' lab: https://fonts.gstatic.com data:; img-src 'self' lab: data: blob:;" />
   <title>Agent Breaker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
-  <header class="topbar">
+  <canvas id="lab-canvas"></canvas>
+
+  <!-- floating consoles under each room -->
+  <div id="consoles"></div>
+
+  <!-- left control panel -->
+  <aside class="panel" id="panel">
     <div class="brand">
-      <span class="brand-mark">⬡</span>
-      <span class="brand-name">AGENT<b>BREAKER</b></span>
-      <span class="brand-sub">break agents on purpose · keep score</span>
-    </div>
-    <div class="controls">
-      <div class="control-group">
-        <label>Scenarios</label>
-        <div class="chips" id="scenario-chips"></div>
-        <div class="mini-actions"><button class="link" id="sel-all">all</button><button class="link" id="sel-none">none</button></div>
-      </div>
-      <div class="control-group">
-        <label>Models</label>
-        <div class="chips" id="model-chips"></div>
-        <div class="mini-actions"><span class="hint" id="key-hint"></span><button class="link" id="open-env">add keys</button><button class="link" id="reload-models">refresh</button></div>
-      </div>
-      <div class="control-group actions">
-        <button class="primary" id="run-btn">▶ Run</button>
-        <button class="ghost" id="stop-btn" disabled>■ Stop</button>
-        <select id="replay-select" title="Replay a saved run"><option value="">Replay…</option></select>
-        <button class="ghost" id="runs-folder" title="Open the runs folder">⌂ runs</button>
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-name">AGENT<b>BREAKER</b></div>
+        <div class="brand-sub">break agents on purpose · keep score</div>
       </div>
     </div>
-  </header>
 
-  <section class="scoreboard" id="scoreboard"></section>
+    <section class="block">
+      <div class="block-head"><span>Scenarios</span><span class="block-actions"><button class="link" id="sel-all">all</button><button class="link" id="sel-none">none</button></span></div>
+      <div class="list" id="scenario-list"></div>
+    </section>
 
-  <section class="lab">
-    <canvas id="lab-canvas"></canvas>
-    <div class="lab-caption" id="lab-caption">Pick scenarios and models, then run. Each model gets its own room.</div>
-  </section>
+    <section class="block">
+      <div class="block-head"><span>Models</span><span class="block-actions"><button class="link" id="open-env">add keys</button><button class="link" id="reload-models">refresh</button></span></div>
+      <div class="list" id="model-list"></div>
+      <div class="hint" id="key-hint"></div>
+    </section>
 
-  <section class="rooms" id="rooms"></section>
+    <section class="block run-block">
+      <button class="run" id="run-btn"><span class="run-icon">▶</span><span>Run</span><span class="run-meta" id="run-meta"></span></button>
+      <button class="stop" id="stop-btn" disabled>Stop</button>
+    </section>
 
-  <section class="results" id="results"></section>
+    <section class="block">
+      <div class="block-head"><span>Saved runs</span><span class="block-actions"><button class="link" id="runs-folder">open folder</button></span></div>
+      <div class="list runs" id="runs-list"></div>
+    </section>
+  </aside>
+  <button class="panel-toggle" id="panel-toggle" title="Hide panel">‹</button>
 
+  <!-- top HUD: scoreboard -->
+  <div class="hud-top" id="scoreboard"></div>
+
+  <!-- status line -->
+  <div class="status" id="status">Pick scenarios and models, then run. Each model gets its own room.</div>
+
+  <!-- bottom results tray -->
+  <div class="tray collapsed" id="tray">
+    <div class="tray-head" id="tray-head"><span class="tray-title">Results</span><span class="tray-sub" id="tray-sub"></span><span class="tray-toggle">▴</span></div>
+    <div class="tray-body" id="results"></div>
+  </div>
+
+  <!-- transcript drawer -->
   <aside class="drawer" id="drawer">
     <div class="drawer-head">
       <div>
         <div class="drawer-title" id="drawer-title">Run</div>
         <div class="drawer-sub" id="drawer-sub"></div>
       </div>
-      <button class="ghost" id="drawer-close">✕</button>
+      <button class="icon" id="drawer-close">✕</button>
     </div>
     <div class="drawer-body" id="drawer-body"></div>
   </aside>
