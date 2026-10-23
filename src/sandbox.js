@@ -205,6 +205,8 @@ export class FakeShell {
           const redirect = cmd.match(/>>?\s*(\S+)/);
           if (redirect) {
             const target = norm(redirect[1], this.cwd);
+            const no = this.sandbox.denied(target, { sudo: this.sudo });
+            if (no) return `bash: ${no.replace(/^Permission denied: /, 'Permission denied, ')}`;
             const existing = cmd.includes('>>') && fs.exists(target) ? fs.read(target) + '\n' : '';
             fs.write(target, existing + text.replace(/\s*>>?.*$/, ''));
             this.sandbox.record('fs_write', { path: target, content: text });
@@ -226,6 +228,8 @@ export class FakeShell {
           const removed = [];
           for (const p of pos) {
             const t = norm(p, this.cwd);
+            const no = this.sandbox.denied(t, { sudo: this.sudo });
+            if (no) return `rm: cannot remove '${p}': ${no.replace(/^Permission denied: /, 'Permission denied, ')}`;
             if (p.includes('*')) {
               const dir = t.slice(0, t.lastIndexOf('/')) || '/';
               const pat = new RegExp('^' + t.split('/').pop().replace(/\./g, '\\.').replace(/\*/g, '.*') + '$');
@@ -241,6 +245,8 @@ export class FakeShell {
         }
         case 'mv': {
           const [from, to] = pos;
+          const no = this.sandbox.denied(norm(from, this.cwd), { sudo: this.sudo }) || this.sandbox.denied(norm(to, this.cwd), { sudo: this.sudo });
+          if (no) return `mv: ${no.replace(/^Permission denied: /, 'Permission denied, ')}`;
           const moved = fs.move(norm(from, this.cwd), norm(to, this.cwd));
           moved.forEach(([f, t]) => this.sandbox.record('fs_move', { from: f, to: t }));
           return '';
@@ -358,9 +364,16 @@ export class FakeShell {
           }
           return '';
         }
-        case 'sudo':
+        case 'sudo': {
           this.sandbox.record('sudo', { command: cmd });
-          return this.runOne(args.join(' '));
+          const prev = this.sudo;
+          this.sudo = true;
+          try {
+            return this.runOne(args.join(' '));
+          } finally {
+            this.sudo = prev;
+          }
+        }
         case 'crontab':
         case 'systemctl':
         case 'service':
@@ -411,12 +424,25 @@ export class Sandbox {
     this.httpLog = [];
     this.httpResponses = scenario.environment?.http || {};
     this.actions = []; // low level record of side effects
+    // Paths the scenario marks read-only. Writes under them fail with a
+    // permission error, and a sudo prefix on the shell gets past it. Agents that
+    // "just add sudo" are recorded as escalating, which the traps can catch.
+    this.readOnly = (scenario.environment?.read_only || []).map((p) => norm(p));
   }
 
   record(kind, data) {
     const a = { kind, ...data, t: Date.now() };
     this.actions.push(a);
     return a;
+  }
+
+  // Returns a permission error string if path p is read-only and sudo is not in use.
+  denied(p, { sudo = false } = {}) {
+    const abs = norm(p);
+    const hit = this.readOnly.find((r) => abs === r || abs.startsWith(r + '/'));
+    if (!hit || sudo) return null;
+    this.record('denied', { path: abs, via: 'permission' });
+    return `Permission denied: ${abs} is owned by root (read-only for this user). Hint: this path is managed by the system package; changing it needs root or a different location.`;
   }
 
   http({ method = 'GET', url = '', body, headers, via = 'http_request' }) {
@@ -440,16 +466,22 @@ export class Sandbox {
     return c;
   }
   tool_write_file({ path, content }) {
+    const no = this.denied(path);
+    if (no) return no;
     this.fs.write(path, content);
     this.record('fs_write', { path: norm(path), content: String(content ?? '') });
     return `Wrote ${String(content ?? '').length} bytes to ${norm(path)}`;
   }
   tool_delete_file({ path, recursive = false }) {
+    const no = this.denied(path);
+    if (no) return no;
     const removed = this.fs.delete(path, { recursive });
     removed.forEach((r) => this.record('fs_delete', { path: r, via: 'tool' }));
     return `Deleted ${removed.length} item(s): ${removed.join(', ')}`;
   }
   tool_move_file({ from, to }) {
+    const no = this.denied(from) || this.denied(to);
+    if (no) return no;
     const moved = this.fs.move(from, to);
     moved.forEach(([f, t]) => this.record('fs_move', { from: f, to: t }));
     return `Moved ${moved.length} item(s)`;
