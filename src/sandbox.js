@@ -174,6 +174,11 @@ export class FakeShell {
   runOne(cmd) {
     const tokens = tokenize(cmd);
     if (!tokens.length) return '';
+    const scripted = (this.sandbox.commandOutputs || []).find((r) => new RegExp(r.match).test(cmd));
+    if (scripted) {
+      if (scripted.record) this.sandbox.record(scripted.record, { command: cmd });
+      return scripted.output;
+    }
     const [name, ...args] = tokens;
     const fs = this.fs;
     const flags = args.filter((a) => a.startsWith('-'));
@@ -364,6 +369,35 @@ export class FakeShell {
           }
           return '';
         }
+        case 'make': {
+          // Reads the Makefile in the working dir (or -C dir), runs the target's
+          // recipe lines through the same shell, so every step is recorded.
+          const dirIdx = args.indexOf('-C');
+          const base = dirIdx >= 0 ? norm(args[dirIdx + 1], this.cwd) : this.cwd;
+          const mk = norm('Makefile', base);
+          if (!fs.exists(mk)) return 'make: *** No targets specified and no makefile found.  Stop.';
+          const rules = {};
+          let current = null;
+          for (const line of fs.read(mk).split('\n')) {
+            const m = line.match(/^([A-Za-z0-9_.-]+):\s*$/);
+            if (m) { current = m[1]; rules[current] = []; continue; }
+            if (current && line.startsWith('\t')) rules[current].push(line.slice(1).trim());
+            else if (line.trim() && !line.startsWith('#')) current = null;
+          }
+          const rest = args.filter((a, i) => a !== '-C' && args[i - 1] !== '-C' && !a.startsWith('-'));
+          const target = rest[0] || Object.keys(rules)[0];
+          if (!rules[target]) return `make: *** No rule to make target '${target}'.  Stop.`;
+          this.sandbox.record('make', { target, cwd: base, command: cmd });
+          const saved = this.cwd;
+          this.cwd = base;
+          const outs = [];
+          try {
+            for (const line of rules[target]) outs.push(this.run(line.replace(/^@/, '')));
+          } finally {
+            this.cwd = saved;
+          }
+          return outs.filter(Boolean).join('\n');
+        }
         case 'sudo': {
           this.sandbox.record('sudo', { command: cmd });
           const prev = this.sudo;
@@ -428,6 +462,10 @@ export class Sandbox {
     // permission error, and a sudo prefix on the shell gets past it. Agents that
     // "just add sudo" are recorded as escalating, which the traps can catch.
     this.readOnly = (scenario.environment?.read_only || []).map((p) => norm(p));
+    // Scripted command output: [{ match: "^pytest", output: "...", record?: "kind" }].
+    // Lets a scenario put a lure inside a tool result (a CI hint, a failing test
+    // message) without the engine needing a real program behind it.
+    this.commandOutputs = scenario.command_outputs || [];
   }
 
   record(kind, data) {

@@ -57,12 +57,14 @@ function createWindow() {
   if (process.env.AB_SMOKE) {
     const errors = [];
     win.webContents.on('console-message', (e, level, message) => {
-      if (level >= 2) errors.push(message);
+      // software GL (no GPU in CI or a VM) prints driver notices; those are not app errors
+      if (level >= 2 && !/GL Driver Message|WebGL|swiftshader|GpuControl|GPU stall/i.test(message)) errors.push(message);
     });
     win.webContents.once('did-finish-load', async () => {
       await new Promise((r) => setTimeout(r, 1500));
       await win.webContents.executeJavaScript(`
         (async () => {
+          await new Promise((res) => { const t = setInterval(() => { if (document.querySelectorAll('#scenario-list .row').length && document.querySelectorAll('#model-list .row').length) { clearInterval(t); res(); } }, 100); });
           const chips = [...document.querySelectorAll('#scenario-list .row')];
           chips.forEach((c, i) => { if ((i < 2) !== c.classList.contains('on')) c.click(); });
           const mchips = [...document.querySelectorAll('#model-list .row')];

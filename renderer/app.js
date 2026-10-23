@@ -87,6 +87,8 @@ async function reloadModels() {
 
 $('#sel-all').onclick = () => { state.scenarios.forEach((s) => state.selScenarios.add(s.id)); renderLists(); };
 $('#sel-none').onclick = () => { state.selScenarios.clear(); renderLists(); };
+// tier buttons: select exactly the scenarios of that difficulty
+document.querySelectorAll('[data-tier]').forEach((b) => b.onclick = () => { state.selScenarios = new Set(state.scenarios.filter((s) => (s.difficulty || 'easy') === b.dataset.tier).map((s) => s.id)); renderLists(); });
 $('#runs-folder').onclick = () => window.lab.openRunsFolder();
 $('#open-env').onclick = () => window.lab.openEnv();
 $('#reload-models').onclick = () => reloadModels();

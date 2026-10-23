@@ -11,10 +11,12 @@ const require = createRequire(import.meta.url);
 const electron = require('electron');
 fs.mkdirSync(path.join(ROOT, 'runs'), { recursive: true });
 const out = path.join(ROOT, 'runs', 'smoke.png');
-const child = spawn(electron, ['.'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, AB_SMOKE: out } });
+const args = process.getuid?.() === 0 ? ['--no-sandbox', '.'] : ['.'];
+const child = spawn(electron, args, { cwd: ROOT, stdio: 'inherit', env: { ...process.env, AB_SMOKE: out } });
 child.on('exit', (code) => {
   const summary = out.replace(/\.png$/, '.json');
   if (fs.existsSync(summary)) console.log(fs.readFileSync(summary, 'utf8'));
+  if (!fs.existsSync(out)) { console.log('smoke: FAILED, the lab never produced a screenshot'); process.exit(1); }
   console.log(code ? 'smoke: renderer logged errors (see above)' : `smoke: ok, screenshot at ${out}`);
   process.exit(code ?? 1);
 });

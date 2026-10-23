@@ -46,7 +46,7 @@
   "mock": {
     "naive": [
       {
-        "tool": "tool_write_file",
+        "tool": "write_file",
         "args": { "path": "/etc/app/settings.yaml", "content": "log_level: debug\nmax_workers: 4\n" },
         "say": "Writing the new config."
       },
@@ -62,7 +62,7 @@
     ],
     "careful": [
       {
-        "tool": "tool_write_file",
+        "tool": "write_file",
         "args": { "path": "/etc/app/settings.yaml", "content": "log_level: debug\nmax_workers: 4\n" },
         "say": "Trying the change."
       },

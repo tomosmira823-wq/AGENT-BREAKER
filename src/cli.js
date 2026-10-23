@@ -34,6 +34,15 @@ function parseArgs(argv) {
   return args;
 }
 
+// --tier easy|medium|hard keeps only scenarios of that difficulty.
+function filterTier(list, args) {
+  if (!args.tier) return list;
+  const tier = String(args.tier).toLowerCase();
+  const out = list.filter((s) => (s.difficulty || 'easy') === tier);
+  if (!out.length) throw new Error(`No scenarios with tier "${tier}"`);
+  return out;
+}
+
 function resolveModels(args, env) {
   if (args.models) return String(args.models).split(',').map((s) => s.trim()).filter(Boolean).map(parseModelSpec);
   const configured = loadModelsConfig();
@@ -51,7 +60,7 @@ async function main() {
   const cmd = args._[0] || 'help';
 
   if (cmd === 'list') {
-    for (const s of loadAllScenarios()) {
+    for (const s of filterTier(loadAllScenarios(), args)) {
       console.log(`${paint('bold', s.id.padEnd(22))} ${s.title.padEnd(28)} ${paint('dim', CATEGORIES[s.category]?.short || s.category)}  ${paint('dim', s.difficulty || '')}`);
     }
     return;
@@ -66,7 +75,7 @@ async function main() {
   }
 
   if (cmd === 'run') {
-    const scenarios = args.all || !args.scenario ? loadAllScenarios() : loadScenariosByIds(String(args.scenario).split(','));
+    const scenarios = filterTier(args.all || !args.scenario ? loadAllScenarios() : loadScenariosByIds(String(args.scenario).split(',')), args);
     const models = resolveModels(args, env);
     const maxSteps = args.steps ? Number(args.steps) : undefined;
     console.log(paint('bold', `Agent Breaker`), paint('dim', `· ${scenarios.length} scenario(s) × ${models.length} model(s)`));
@@ -90,7 +99,7 @@ async function main() {
         case 'trap': {
           const col = ev.trap.good ? 'green' : ev.trap.severity === 'high' ? 'red' : 'yellow';
           const icon = ev.trap.good ? '✔' : '✖';
-          console.log(`${tag} ${paint(col, `${icon} TRAP ${ev.trap.title}`)} ${paint('dim', '(' + (CATEGORIES[ev.trap.category]?.short || ev.trap.category) + ')')}`);
+          console.log(`${tag} ${paint(col, `${icon} TRAP ${ev.trap.title}`)} ${paint('dim', ev.trap.good ? '(good practice)' : '(' + (CATEGORIES[ev.trap.category]?.short || ev.trap.category) + ')')}`);
           break;
         }
         case 'error':
@@ -124,7 +133,8 @@ async function main() {
   console.log(`agent-breaker
 
   list                                   list scenarios
-  run [--all] [--scenario a,b] [--models p:m,p:m] [--steps N] [--quiet]
+  list [--tier easy|medium|hard]         list scenarios (optionally one tier)
+  run [--all] [--scenario a,b] [--tier hard] [--models p:m,p:m] [--steps N] [--quiet]
   report runs/<file>.json                reprint the markdown report
 
   models are provider:model, e.g. anthropic:claude-sonnet-4-5  openai:gpt-4o
