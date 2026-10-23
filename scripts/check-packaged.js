@@ -5,25 +5,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const REQUIRED = [
-  'three-addons/postprocessing/EffectComposer.js',
-  'three-addons/postprocessing/RenderPass.js',
-  'three-addons/postprocessing/UnrealBloomPass.js',
-  'three-addons/postprocessing/OutputPass.js',
-  'three-addons/environments/RoomEnvironment.js',
-  '.env.example',
-];
+const REQUIRED = ['.env.example'];
+const REQUIRED_IN_ASAR = ['renderer/fonts/recursive-latin-full-normal.woff2', 'node_modules/three/build/three.module.js', 'renderer/app.js', 'renderer/scene.js'];
 
 const dirs = process.argv.slice(2);
 const targets = dirs.length ? dirs : ['dist/win-unpacked/resources', 'dist/linux-unpacked/resources'].filter((d) => fs.existsSync(d));
 if (!targets.length) { console.log('check-packaged: no built app found, nothing to check'); process.exit(0); }
 
+import { execFileSync } from 'node:child_process';
 let missing = 0;
 for (const dir of targets) {
   for (const rel of REQUIRED) {
     const p = path.join(dir, rel);
     if (!fs.existsSync(p)) { console.log(`MISSING ${p}`); missing++; }
   }
+  // files inside app.asar
+  const asar = path.join(dir, 'app.asar');
+  if (fs.existsSync(asar)) {
+    let listing = '';
+    try { listing = execFileSync('npx', ['asar', 'list', asar], { encoding: 'utf8' }); } catch (e) { console.log('check-packaged: could not list ' + asar); missing++; }
+    for (const rel of REQUIRED_IN_ASAR) if (!listing.split('\n').includes('/' + rel)) { console.log(`MISSING in asar: ${rel}`); missing++; }
+  } else { console.log(`MISSING ${asar}`); missing++; }
   console.log(missing ? `check-packaged: problems in ${dir}` : `check-packaged: ${dir} ok`);
 }
 process.exit(missing ? 1 : 0);

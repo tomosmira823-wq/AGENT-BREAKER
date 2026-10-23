@@ -61,10 +61,6 @@
       {
         "from": ".env.example",
         "to": ".env.example"
-      },
-      {
-        "from": "node_modules/three/examples/jsm",
-        "to": "three-addons"
       }
     ],
     "asar": true,

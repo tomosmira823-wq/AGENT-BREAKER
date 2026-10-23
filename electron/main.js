@@ -63,6 +63,7 @@ function createWindow() {
     win.webContents.on('console-message', (e, level, message) => { if (level >= 3) errs.push(message); });
     win.webContents.once('did-finish-load', async () => {
       const finish = (extra) => { fs.writeFileSync(out, JSON.stringify({ ...extra, errors: errs }, null, 2)); app.exit(0); };
+      if (process.env.AB_SHOT) { await new Promise((res) => setTimeout(res, 3500)); fs.writeFileSync(process.env.AB_SHOT.replace(/\.png$/, '-0-dock.png'), (await win.webContents.capturePage()).toPNG()); }
       const timeout = new Promise((res) => setTimeout(() => res({ timedOut: true }), process.env.AB_BATCH ? 45000 : 15000));
       const probe = win.webContents.executeJavaScript(`(async () => {
         window.__abClicks = ${process.env.AB_CLICKS ? 'true' : 'false'};
@@ -70,6 +71,9 @@ function createWindow() {
         window.__abBatch = ${process.env.AB_BATCH ? 'true' : 'false'};
         const r = { labType: typeof window.lab };
         await new Promise((res) => setTimeout(res, 2000));
+        r.bays = window.__scene?.bays?.map((b) => b.id + '@' + b.group.position.x.toFixed(1) + ' plate:' + !!b.plate.parent);
+        r.cam = window.__scene?.camera.position.toArray().map((v) => +v.toFixed(1));
+        await document.fonts.ready; r.fontLoaded = document.fonts.check('12px "Recursive Variable"') && [...document.fonts].some((f) => f.family.includes('Recursive') && f.status === 'loaded');
         r.scenarioRows = document.querySelectorAll('#scenario-list .row').length;
         r.modelRows = document.querySelectorAll('#model-list .row').length;
         r.scenariosIpc = (await window.lab.scenarios()).length;
@@ -116,6 +120,9 @@ function createWindow() {
       result.envAfter = fs.existsSync(ENV_FILE()) ? fs.readFileSync(ENV_FILE(), 'utf8').replace(/=(.{4}).*/g, '=…$1') : null;
       if (process.env.AB_SHOT) {
         // reopen the broken model's transcript and photograph it
+        await win.webContents.executeJavaScript(`document.querySelector('#tab-live')?.click(); document.querySelector('#drawer-close')?.click();`);
+        await new Promise((res) => setTimeout(res, 600));
+        fs.writeFileSync(process.env.AB_SHOT.replace(/\.png$/, '-1-readouts.png'), (await win.webContents.capturePage()).toPNG());
         await win.webContents.executeJavaScript(`(() => { const c = [...document.querySelectorAll('.console')].find((x) => /broken/i.test(x.textContent)); c?.querySelector('.open')?.click(); })()`);
         await new Promise((res) => setTimeout(res, 1200));
         fs.writeFileSync(process.env.AB_SHOT, (await win.webContents.capturePage()).toPNG());

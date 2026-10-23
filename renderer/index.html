@@ -3,93 +3,102 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' lab:; script-src 'self' lab: 'sha256-LfY3wZQYo00IBIdzOwbfRewBcA/d6EvefXdZarhmaOk='; style-src 'self' lab: 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' lab: https://fonts.gstatic.com data:; img-src 'self' lab: data: blob:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' lab:; script-src 'self' lab: 'sha256-05KksyXy+wzIMCYD55LMpHn81Rie1KMOys2erScRls0='; style-src 'self' lab: 'unsafe-inline'; font-src 'self' lab: data:; img-src 'self' lab: data: blob:;" />
   <title>Agent Breaker</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="./style.css" />
   <script type="importmap">
     {
       "imports": {
-        "three": "../node_modules/three/build/three.module.js",
-        "three/addons/": "../vendor/three/addons/"
+        "three": "../node_modules/three/build/three.module.js"
       }
     }
   </script>
 </head>
 <body>
-  <canvas id="lab-canvas"></canvas>
-
-  <!-- floating consoles under each room -->
-  <div id="consoles"></div>
-
-  <!-- left control panel -->
-  <aside class="panel" id="panel">
-    <div class="brand">
-      <div class="brand-mark"></div>
-      <div>
-        <div class="brand-name">AGENT<b>BREAKER</b></div>
-        <div class="brand-sub">break agents on purpose · keep score</div>
-      </div>
+  <header class="bar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Agent Breaker</div>
+    <div class="status" id="status">Pick scenarios and models, then run.</div>
+    <div class="bar-actions">
+      <button class="btn quiet" id="stop-btn" disabled>Stop</button>
+      <button class="btn run" id="run-btn"><span class="run-icon" aria-hidden="true"></span>Run<span class="run-meta" id="run-meta"></span></button>
     </div>
+  </header>
 
+  <aside class="dock" id="panel">
     <section class="block">
-      <div class="block-head"><span>Scenarios</span><span class="block-actions"><button class="link tier" data-tier="easy">easy</button><button class="link tier" data-tier="medium">med</button><button class="link tier" data-tier="hard">hard</button><button class="link" id="sel-all">all</button><button class="link" id="sel-none">none</button></span></div>
+      <div class="block-head">
+        <h2>Scenarios</h2>
+        <div class="block-actions">
+          <button class="link tier" data-tier="easy">easy</button><button class="link tier" data-tier="medium">medium</button><button class="link tier" data-tier="hard">hard</button>
+          <span class="sep" aria-hidden="true"></span>
+          <button class="link" id="sel-all">all</button><button class="link" id="sel-none">none</button>
+        </div>
+      </div>
       <div class="list" id="scenario-list"></div>
     </section>
 
     <section class="block">
-      <div class="block-head"><span>Models</span><span class="block-actions"><button class="link" id="open-env">add keys</button><button class="link" id="reload-models">refresh</button></span></div>
+      <div class="block-head">
+        <h2>Models</h2>
+        <div class="block-actions"><button class="link" id="open-env">Add keys</button><button class="link" id="reload-models">Refresh</button></div>
+      </div>
       <div class="list" id="model-list"></div>
       <div class="hint" id="key-hint"></div>
     </section>
 
-    <section class="block run-block">
-      <button class="run" id="run-btn"><span class="run-icon">▶</span><span>Run</span><span class="run-meta" id="run-meta"></span></button>
-      <button class="stop" id="stop-btn" disabled>Stop</button>
-    </section>
-
-    <section class="block">
-      <div class="block-head"><span>Saved runs</span><span class="block-actions"><button class="link" id="runs-folder">open folder</button></span></div>
+    <section class="block grow">
+      <div class="block-head">
+        <h2>Saved runs</h2>
+        <div class="block-actions"><button class="link" id="runs-folder">Open folder</button></div>
+      </div>
       <div class="list runs" id="runs-list"></div>
     </section>
   </aside>
-  <button class="panel-toggle" id="panel-toggle" title="Hide panel">‹</button>
+  <button class="dock-toggle" id="panel-toggle" title="Show or hide the side panel" aria-label="Show or hide the side panel"></button>
 
-  <!-- top HUD: scoreboard -->
-  <div class="hud-top" id="scoreboard"></div>
+  <main class="range">
+    <canvas id="lab-canvas"></canvas>
+    <div class="scoreboard" id="scoreboard"></div>
+    <div class="range-empty" id="range-empty">
+      <p>No bays yet. Choose scenarios and models on the left, then run. Each model gets a bay and the lamp over it shows how it did.</p>
+    </div>
+  </main>
 
-  <!-- status line -->
-  <div class="status" id="status">Pick scenarios and models, then run. Each model gets its own room.</div>
+  <section class="rail" id="tray">
+    <div class="rail-head" id="tray-head">
+      <div class="tabs" role="tablist">
+        <button class="tab on" role="tab" data-tab="live" id="tab-live">Readouts</button>
+        <button class="tab" role="tab" data-tab="results" id="tab-results">Results</button>
+      </div>
+      <span class="rail-sub" id="tray-sub"></span>
+      <button class="rail-toggle" id="rail-toggle" title="Collapse" aria-label="Collapse the bottom rail"></button>
+    </div>
+    <div class="rail-body">
+      <div class="readouts" id="consoles"></div>
+      <div class="results" id="results" hidden></div>
+    </div>
+  </section>
 
-  <!-- bottom results tray -->
-  <div class="tray collapsed" id="tray">
-    <div class="tray-head" id="tray-head"><span class="tray-title">Results</span><span class="tray-sub" id="tray-sub"></span><span class="tray-toggle">▴</span></div>
-    <div class="tray-body" id="results"></div>
-  </div>
-
-  <!-- transcript drawer -->
-  <aside class="drawer" id="drawer">
+  <aside class="drawer" id="drawer" aria-label="Transcript">
     <div class="drawer-head">
       <div>
         <div class="drawer-title" id="drawer-title">Run</div>
         <div class="drawer-sub" id="drawer-sub"></div>
       </div>
-      <button class="icon" id="drawer-close">✕</button>
+      <button class="icon" id="drawer-close" aria-label="Close transcript">✕</button>
     </div>
     <div class="drawer-body" id="drawer-body"></div>
   </aside>
 
-  <!-- API key dialog -->
   <div class="modal" id="keys-modal" hidden>
-    <div class="modal-card">
-      <div class="modal-head"><span>API keys</span><button class="icon" id="keys-close">✕</button></div>
-      <p class="modal-note">Paste a key and press save. It goes into <span class="mono" id="keys-file"></span>. Leave a box empty to keep the key already saved.</p>
-        <label class="key-field"><span>Anthropic</span><input type="password" id="key-ANTHROPIC_API_KEY" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" /><span class="key-state" id="state-ANTHROPIC_API_KEY"></span></label>
-        <label class="key-field"><span>OpenAI</span><input type="password" id="key-OPENAI_API_KEY" autocomplete="off" spellcheck="false" placeholder="sk-…" /><span class="key-state" id="state-OPENAI_API_KEY"></span></label>
-        <label class="key-field"><span>Gemini</span><input type="password" id="key-GEMINI_API_KEY" autocomplete="off" spellcheck="false" placeholder="AI…" /><span class="key-state" id="state-GEMINI_API_KEY"></span></label>
-      <div class="modal-msg" id="keys-msg"></div>
-      <div class="modal-actions"><button class="link" id="keys-cancel">cancel</button><button class="run-mini" id="keys-save">save keys</button></div>
+    <div class="modal-card" role="dialog" aria-labelledby="keys-title">
+      <div class="modal-head"><h2 id="keys-title">API keys</h2><button class="icon" id="keys-close" aria-label="Close">✕</button></div>
+      <p class="modal-note">Paste a key and save. Keys are stored in <span class="path" id="keys-file"></span> and never leave this machine. Leave a field empty to keep the key already saved.</p>
+      <label class="key-field"><span>Anthropic</span><input type="password" id="key-ANTHROPIC_API_KEY" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" /><span class="key-state" id="state-ANTHROPIC_API_KEY"></span></label>
+      <label class="key-field"><span>OpenAI</span><input type="password" id="key-OPENAI_API_KEY" autocomplete="off" spellcheck="false" placeholder="sk-…" /><span class="key-state" id="state-OPENAI_API_KEY"></span></label>
+      <label class="key-field"><span>Gemini</span><input type="password" id="key-GEMINI_API_KEY" autocomplete="off" spellcheck="false" placeholder="AI…" /><span class="key-state" id="state-GEMINI_API_KEY"></span></label>
+      <div class="modal-msg" id="keys-msg" role="status"></div>
+      <div class="modal-actions"><button class="btn quiet" id="keys-cancel">Cancel</button><button class="btn run" id="keys-save">Save keys</button></div>
     </div>
   </div>
 

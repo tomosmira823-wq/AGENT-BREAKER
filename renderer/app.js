@@ -30,6 +30,7 @@ const state = {
 };
 
 const scene = new LabScene($('#lab-canvas'), { post: !location.search.includes('nopost') });
+window.__scene = scene; // for the headless probe
 
 // ------------------------------------------------------------------ setup
 async function init() {
@@ -43,7 +44,6 @@ async function init() {
   await refreshRunsList();
   renderConsoles([]);
   renderResults();
-  positionLoop();
 }
 
 function renderLists() {
@@ -120,7 +120,6 @@ $('#keys-save').onclick = async () => {
 $('#reload-models').onclick = () => reloadModels();
 $('#drawer-close').onclick = () => $('#drawer').classList.remove('open');
 $('#panel-toggle').onclick = () => document.body.classList.toggle('panel-hidden');
-$('#tray-head').onclick = () => $('#tray').classList.toggle('collapsed');
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#drawer').classList.remove('open'); });
 
 // ------------------------------------------------------------------ consoles (one per room)
@@ -136,36 +135,26 @@ function renderConsoles(modelIds) {
       <div class="head"><span class="name">${esc(m.label || m.id)}</span><span class="badge">idle</span></div>
       <div class="task">waiting for a task</div>
       <div class="log"></div>
-      <div class="foot"><span>steps <b class="steps">0</b></span><span>traps <b class="traps">0</b></span><span class="open">transcript ›</span></div>`;
+      <div class="foot"><span>steps <b class="steps">0</b></span><span>traps <b class="traps">0</b></span><button class="open">Transcript</button></div>`;
     wrap.appendChild(c);
     const refs = { root: c, badge: c.querySelector('.badge'), task: c.querySelector('.task'), log: c.querySelector('.log'), steps: c.querySelector('.steps'), traps: c.querySelector('.traps'), currentRun: null, trapCount: 0, screen: [] };
     c.querySelector('.open').onclick = () => refs.currentRun && openDrawer(refs.currentRun);
     c.querySelector('.head').onclick = () => scene.focus(m.id);
     state.consoles.set(m.id, refs);
   }
-  sizeConsoles();
+  $('#range-empty').hidden = models.length > 0;
+  showTab('live');
 }
 
-function sizeConsoles() {
-  const n = state.consoles.size || 1;
-  const w = Math.max(220, Math.min(320, (window.innerWidth - 60) / n - 24));
-  for (const refs of state.consoles.values()) refs.root.style.width = w + 'px';
+// bottom rail tabs
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === name));
+  $('#consoles').hidden = name !== 'live';
+  $('#results').hidden = name !== 'results';
+  document.body.classList.remove('rail-collapsed');
 }
-window.addEventListener('resize', sizeConsoles);
-
-function positionLoop() {
-  const place = () => {
-    for (const a of scene.anchors()) {
-      const refs = state.consoles.get(a.id);
-      if (!refs) continue;
-      refs.root.style.left = a.x + 'px';
-      refs.root.style.top = Math.min(window.innerHeight - 260, a.y + 10) + 'px';
-      refs.root.style.opacity = a.visible ? 1 : 0;
-    }
-    requestAnimationFrame(place);
-  };
-  place();
-}
+document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => showTab(t.dataset.tab)));
+$('#rail-toggle').onclick = () => document.body.classList.toggle('rail-collapsed');
 
 function consoleLog(refs, cls, icon, text, arg) {
   const line = el('div', `log-line ${cls}`);
@@ -229,7 +218,7 @@ function handleEvent(ev) {
     case 'trap': {
       const t = ev.trap;
       const cls = t.good ? 'good' : t.severity === 'high' ? 'high' : 'medium';
-      consoleLog(refs, `trap ${cls}`, t.good ? '✔' : '✖', '', `${t.title} · ${CATEGORY_SHORT[t.category] || t.category}`);
+      consoleLog(refs, `trap ${cls}`, t.good ? '✔' : '✖', t.good ? 'good call' : (CATEGORY_SHORT[t.category] || t.category), t.title);
       pushScreen(refs, ev.model, `${t.good ? '✔' : '✖'} ${t.title}`);
       if (!t.good) { refs.trapCount++; refs.traps.textContent = refs.trapCount; }
       scene.flash(ev.model, t.good ? 'green' : t.severity === 'high' ? 'red' : 'amber');
@@ -248,8 +237,8 @@ function handleEvent(ev) {
       const cls = v === 'pass' ? 'green' : v === 'warn' ? 'amber' : v === 'fail' ? 'red' : 'amber';
       setConsoleState(refs, ev.model, cls, v + (ev.asked ? ' · asked' : ''), v);
       scene.moveTo(ev.model, 'centre');
-      consoleLog(refs, 'sys', '■', '', `${v.toUpperCase()}${ev.asked ? ' · asked first' : ''}${ev.finished ? '' : ' · did not call finish'}`);
-      pushScreen(refs, ev.model, `= ${v.toUpperCase()}${ev.asked ? ' (asked first)' : ''}`);
+      consoleLog(refs, 'sys', '■', v, `${ev.asked ? 'asked first' : ''}${ev.finished ? '' : (ev.asked ? ', ' : '') + 'did not call finish'}`);
+      pushScreen(refs, ev.model, `= ${v}${ev.asked ? ' (asked first)' : ''}`);
       break;
     }
   }
@@ -264,6 +253,7 @@ window.lab.onBatchStart(({ scenarios, models }) => {
   renderResults();
   renderScoreboard();
   document.body.classList.add('panel-hidden');
+  showTab('live');
 });
 window.lab.onScenarioDone(({ results }) => {
   for (const r of results) {
@@ -281,7 +271,8 @@ window.lab.onBatchDone(async ({ file, error, cancelled, results }) => {
   const errs = (results || []).filter((r) => r.verdict === 'error' || (r.error && r.verdict === 'pass')).length;
   if (error) $('#status').textContent = `Batch stopped early: ${error.split('\n')[0]}${file ? ` · partial results saved to ${file}` : ''}`;
   else if (cancelled) $('#status').textContent = `Stopped. ${file ? `Saved ${file}.` : 'Nothing to save.'}`;
-  else $('#status').textContent = `Done. Saved ${file}.${errs ? ` ${errs} run${errs > 1 ? 's' : ''} hit an API error, open the transcript for details.` : ''} Click a cell in results to replay it.`;
+  else $('#status').textContent = `Done. Saved ${file}.${errs ? ` ${errs} run${errs > 1 ? 's' : ''} hit an API error, open the transcript for details.` : ''}`;
+  showTab('results');
   await refreshRunsList();
 });
 
@@ -313,36 +304,30 @@ function renderScoreboard() {
   const wrap = $('#scoreboard');
   wrap.innerHTML = '';
   const models = state.batchModels;
-  if (!models.length) return;
-  const total = state.batchScenarios.length || 1;
-  for (const id of models) {
+  if (!models.length || !state.results.length) return;
+  const cell = (n) => `<td>${n ? `<b>${n}</b>` : '<span class="n0">0</span>'}</td>`;
+  const rows = models.map((id) => {
     const label = (state.models.find((m) => m.id === id) || {}).label || id;
     const mine = state.results.filter((r) => r.model === id);
     const errs = mine.filter((r) => r.verdict === 'error' || (r.error && r.verdict === 'pass')).length;
     const pass = mine.filter((r) => r.verdict === 'pass' && !r.error).length;
-    const warn = mine.filter((r) => r.verdict === 'warn').length;
-    const fail = mine.filter((r) => r.verdict === 'fail').length;
     const scored = mine.length - errs;
     const asked = mine.filter((r) => r.asked).length;
     const cats = { injection: 0, destructive: 0, leak: 0, scope: 0 };
     for (const r of mine) for (const t of r.traps || []) if (t.fired && !t.good && cats[t.category] != null) cats[t.category]++;
     const pct = scored ? pass / scored : 1;
-    const card = el('div', 'score');
-    card.innerHTML = `
-      <div class="top"><div class="name">${esc(label)}</div><div class="safe ${pct >= 0.8 ? '' : pct >= 0.5 ? 'mid' : 'bad'}">${pass}<small>/${scored || total} safe</small>${errs ? `<small class="errs" title="API errors: not counted as safe or unsafe"> · ${errs} error${errs > 1 ? 's' : ''}</small>` : ''}</div></div>
-      <div class="cats"><span>inj <b>${cats.injection}</b></span><span>dest <b>${cats.destructive}</b></span><span>leak <b>${cats.leak}</b></span><span>scope <b>${cats.scope}</b></span><span>asked <b>${asked}</b></span></div>
-      <div class="bar"><i class="p" style="width:${(pass / total) * 100}%"></i><i class="w" style="width:${(warn / total) * 100}%"></i><i class="f" style="width:${(fail / total) * 100}%"></i><i class="e" style="width:${(errs / total) * 100}%"></i></div>`;
-    wrap.appendChild(card);
-  }
+    const lamp = !scored ? (errs ? 'error' : '') : pct === 1 ? 'pass' : pct >= 0.5 ? 'warn' : 'fail';
+    return `<tr><td class="name"><span class="lamp ${lamp}"></span>${esc(label)}</td><td class="safe ${pct >= 0.8 ? '' : pct >= 0.5 ? 'mid' : 'bad'}">${pass}/${scored}</td>${cell(cats.injection)}${cell(cats.destructive)}${cell(cats.leak)}${cell(cats.scope)}${cell(asked)}<td class="err">${errs ? errs : '<span class="n0">0</span>'}</td></tr>`;
+  });
+  wrap.innerHTML = `<table><thead><tr><th>Model</th><th>Safe</th><th>Injection</th><th>Destructive</th><th>Leak</th><th>Scope</th><th>Asked first</th><th>Errors</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
 }
 
 function renderResults() {
   const wrap = $('#results');
-  const tray = $('#tray');
   wrap.innerHTML = '';
-  if (!state.batchModels.length) { tray.classList.add('hidden'); return; }
-  tray.classList.remove('hidden');
-  $('#tray-sub').textContent = `${state.results.length}/${state.batchModels.length * state.batchScenarios.length} runs · click a cell to replay`;
+  if (!state.batchModels.length) { $('#tray-sub').textContent = ''; return; }
+  const total = state.batchModels.length * state.batchScenarios.length;
+  $('#tray-sub').textContent = state.results.length < total ? `${state.results.length} of ${total} runs finished` : `${total} runs. Click a result to replay it.`;
   const table = el('table', 'grid');
   const labels = Object.fromEntries(state.models.map((m) => [m.id, m.label || m.id]));
   table.innerHTML = `<thead><tr><th>Scenario</th>${state.batchModels.map((m) => `<th>${esc(labels[m] || m)}</th>`).join('')}</tr></thead>`;
@@ -354,7 +339,7 @@ function renderResults() {
     for (const mid of state.batchModels) {
       const r = state.results.find((x) => x.scenario === sid && x.model === mid);
       const td = el('td', 'cell');
-      if (!r) td.innerHTML = `<span class="v"></span><span class="tags">…</span>`;
+      if (!r) td.innerHTML = `<span class="v"></span><span class="tags">waiting</span>`;
       else {
         const v = r.error ? 'error' : r.verdict;
         const fired = [...new Set((r.traps || []).filter((t) => t.fired && !t.good).map((t) => CATEGORY_SHORT[t.category] || t.category))];
@@ -376,7 +361,7 @@ async function refreshRunsList() {
   list.innerHTML = '';
   if (!runs.length) { list.appendChild(el('div', 'empty', 'nothing saved yet')); return; }
   for (const r of runs.slice(0, 12)) {
-    const row = el('div', 'row', `<span class="lbl">${esc(r.file.replace('.json', '').replace('T', ' ').slice(0, 16))}</span><span class="sub">${r.models.length}m · ${r.scenarios}s</span>`);
+    const row = el('div', 'row', `<span class="lbl">${esc(r.file.replace('.json', '').replace('T', ' ').slice(0, 16))}</span><span class="sub">${r.models.length} model${r.models.length === 1 ? '' : 's'}, ${r.scenarios} scenario${r.scenarios === 1 ? '' : 's'}</span>`);
     row.title = r.models.join(', ');
     row.onclick = () => loadSavedRun(r.file);
     list.appendChild(row);
@@ -442,6 +427,15 @@ function stopReplay() {
 }
 
 // ------------------------------------------------------------------ transcript drawer
+// tool arguments as "key: value" lines instead of raw JSON
+function prettyArgs(args) {
+  if (!args || typeof args !== 'object') return '';
+  const entries = Object.entries(args);
+  if (!entries.length) return '';
+  if (entries.length === 1) return String(entries[0][1]);
+  return entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('\n');
+}
+
 function openDrawer(runId, { keepScroll = false } = {}) {
   const run = state.runs.get(runId);
   if (!run) return;
@@ -450,41 +444,41 @@ function openDrawer(runId, { keepScroll = false } = {}) {
   const r = run.result || state.results.find((x) => x.id === runId) || {};
   const label = (state.models.find((m) => m.id === run.model) || {}).label || run.model;
   const sc = state.scenarios.find((s) => s.id === run.scenario) || { title: run.scenario };
-  $('#drawer-title').textContent = `${label} · ${sc.title}`;
+  $('#drawer-title').textContent = sc.title;
   const started = run.events.find((e) => e.type === 'run_start');
   const errEv = run.events.find((e) => e.type === 'error');
   $('#drawer-sub').textContent = r.verdict
-    ? `${r.verdict.toUpperCase()}${r.asked ? ' · asked first' : ''} · ${r.steps ?? 0} steps${r.error ? ' · error' : ''}`
-    : errEv ? 'error' : 'in progress';
+    ? `${label} ${r.verdict === 'pass' ? 'passed' : r.verdict === 'fail' ? 'failed' : r.verdict === 'warn' ? 'passed with a warning' : 'hit an error'}${r.asked ? ', asked first' : ''}, ${r.steps ?? 0} step${r.steps === 1 ? '' : 's'}`
+    : errEv ? `${label} hit an error` : `${label}, in progress`;
   const body = $('#drawer-body');
   body.innerHTML = '';
-  if (started || sc.task) body.appendChild(el('div', 'msg user', `<div class="role">task</div>${esc(started?.task || sc.task || '')}`));
+  if (started || sc.task) body.appendChild(el('div', 'msg user', `<div class="role">task</div><div class="body">${esc(started?.task || sc.task || '')}</div>`));
   const errText = r.error || errEv?.message;
-  if (errText) body.appendChild(el('div', 'msg system error', `<div class="role">error</div>${esc(errText).slice(0, 2000)}`));
+  if (errText) body.appendChild(el('div', 'msg system error', `<div class="role">error</div><div class="body">${esc(errText).slice(0, 2000)}</div>`));
   if (r.traps) {
     const ts = el('div', 'traps-summary');
-    for (const t of r.traps) ts.innerHTML += `<div class="trap-row"><span class="v ${t.fired ? 'hit' : ''} ${t.good ? 'good' : t.severity}"></span><span class="t ${t.fired ? 'hit' : ''}">${esc(t.title)} <small>· ${esc(CATEGORY_SHORT[t.category] || t.category)}</small></span></div>`;
+    for (const t of r.traps) ts.innerHTML += `<div class="trap-row"><span class="v ${t.fired ? 'hit' : ''} ${t.good ? 'good' : t.severity}"></span><span class="t ${t.fired ? 'hit' : ''}">${esc(t.title)} <small>${esc(CATEGORY_SHORT[t.category] || t.category)}</small></span></div>`;
     body.appendChild(ts);
   }
   if (run.transcript) {
     for (const m of run.transcript) {
       const d = el('div', `msg ${m.role}`);
       let text = m.content || '';
-      if (m.role === 'assistant' && m.toolCalls?.length) text += (text ? '\n' : '') + m.toolCalls.map((c) => `→ ${c.name}(${JSON.stringify(c.args)})`).join('\n');
+      if (m.role === 'assistant' && m.toolCalls?.length) text += (text ? '\n' : '') + m.toolCalls.map((c) => `${c.name} ${prettyArgs(c.args)}`).join('\n');
       if (m.role === 'tool') text = `[${m.name}] ${text}`;
-      d.innerHTML = `<div class="role">${m.role}</div>${esc(text).slice(0, 6000)}`;
+      d.innerHTML = `<div class="role">${m.role === 'tool' ? 'result' : m.role}</div><div class="body">${esc(text).slice(0, 6000)}</div>`;
       body.appendChild(d);
     }
   } else {
     for (const ev of run.events) {
-      if (ev.type === 'message') body.appendChild(el('div', 'msg assistant', `<div class="role">assistant</div>${esc(ev.content)}`));
-      if (ev.type === 'tool_call') body.appendChild(el('div', 'msg assistant', `<div class="role">tool call</div><span class="call">${esc(ev.call.name)}</span>(${esc(JSON.stringify(ev.call.args))})`));
-      if (ev.type === 'tool_result') body.appendChild(el('div', 'msg tool', `<div class="role">result</div>${esc(ev.result).slice(0, 3000)}`));
-      if (ev.type === 'trap') body.appendChild(el('div', `msg ${ev.trap.good ? 'user' : 'system'}`, `<div class="role">${ev.trap.good ? 'good call' : 'TRAP'}</div>${esc(ev.trap.title)}`));
+      if (ev.type === 'message') body.appendChild(el('div', 'msg assistant', `<div class="role">assistant</div><div class="body">${esc(ev.content)}</div>`));
+      if (ev.type === 'tool_call') body.appendChild(el('div', 'msg assistant call-msg', `<div class="role">tool call</div><div class="body"><span class="call">${esc(ev.call.name)}</span> ${esc(prettyArgs(ev.call.args))}</div>`));
+      if (ev.type === 'tool_result') body.appendChild(el('div', 'msg tool', `<div class="role">result</div><div class="body">${esc(ev.result).slice(0, 3000)}</div>`));
+      if (ev.type === 'trap') body.appendChild(el('div', `msg trap-msg ${ev.trap.good ? 'good' : ev.trap.severity}`, `<div class="role">${ev.trap.good ? 'good call' : 'trap'}</div><div class="body">${esc(ev.trap.title)}</div>`));
     }
   }
   const stepsShown = body.querySelectorAll('.msg.assistant, .msg.tool').length;
-  if (!stepsShown) body.appendChild(el('div', 'msg system muted', `<div class="role">note</div>${errText ? 'The model never got to take a step. Fix the error above (usually the API key or the model name in models.json) and run again.' : r.verdict ? 'This run finished without the model taking any steps.' : 'Waiting for the model\'s first step…'}`));
+  if (!stepsShown) body.appendChild(el('div', 'msg system muted', `<div class="role">note</div><div class="body">${errText ? 'The model never got to take a step. Fix the error above (usually the API key or the model name in models.json) and run again.' : r.verdict ? 'This run finished without the model taking any steps.' : 'Waiting for the model\'s first step…'}</div>`));
   $('#drawer').classList.add('open');
   if (keepScroll) $('#drawer-body').scrollTop = prevScroll;
 }
