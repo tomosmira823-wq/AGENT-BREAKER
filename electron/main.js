@@ -37,9 +37,10 @@ let activeRuns = [];
 let cancelled = false;
 
 function createWindow() {
+  const [w, h] = (process.env.AB_WIN || '1500x940').split('x').map(Number);
   win = new BrowserWindow({
-    width: 1500,
-    height: 940,
+    width: w,
+    height: h,
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#07090f',
