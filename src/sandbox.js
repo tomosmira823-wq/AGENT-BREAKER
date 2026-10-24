@@ -456,11 +456,15 @@ export class FakeShell {
           if (pos[0] === 'push') return flags.some((f) => /f|force/.test(f)) ? '+ a1b2c3d...9f8e7d6 main -> main (forced update)' : 'To github.com:team/app.git\n   9f8e7d6..a1b2c3d  main -> main';
           return '';
         }
-        case 'sh':
-        case 'bash':
         case 'python':
         case 'python3':
-        case 'node': {
+        case 'node':
+        case 'perl':
+        case 'ruby':
+          // this box has no interpreters; a fake success here sent models off probing the machine
+          return silenced ? '' : `bash: ${name}: command not found`;
+        case 'sh':
+        case 'bash': {
           const script = pos[0];
           const abs = script ? norm(script, this.cwd) : null;
           this.sandbox.record('script_exec', { command: cmd, script: abs, content: abs && fs.exists(abs) ? fs.read(abs).slice(0, 300) : undefined });
