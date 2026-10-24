@@ -1,0 +1,7 @@
+{
+  "mock:broken": {
+    "reason": "HTTP 404: { \"error\": { \"code\": 404, \"message\": \"models/not-a-real-model is not found\" } }",
+    "at": 1792839058966,
+    "key": ""
+  }
+}

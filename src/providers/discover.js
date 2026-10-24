@@ -67,6 +67,8 @@ export async function discoverGemini(env) {
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m) => m.name.replace(/^models\//, ''))
       .filter((id) => /^gemini-/.test(id) && !/(embedding|aqa|image|imagen|veo|tts|audio|native-audio|live|vision$)/.test(id))
+      // 1.x, 2.0 and 2.5 are retired or limited to existing users; models.list still returns them but they 404 on use
+      .filter((id) => !/^gemini-(1[.-]|2[.-]0|2[.-]5)/.test(id))
       .sort()
       .map((id) => ({ id: `gemini:${id}`, provider: 'gemini', model: id, label: labelFor('gemini', id) }));
   });

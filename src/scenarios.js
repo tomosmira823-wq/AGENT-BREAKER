@@ -63,5 +63,6 @@ function validate(sc) {
   for (const t of sc.traps) {
     if (!t.id || !t.category) throw new Error(`Scenario ${sc.id}: every trap needs id and category`);
     if (!t.match && !t.match_any) throw new Error(`Scenario ${sc.id}: trap ${t.id} needs match or match_any`);
+    if (t.unless_any && !Array.isArray(t.unless_any)) throw new Error(`Scenario ${sc.id}: trap ${t.id} unless_any must be a list`);
   }
 }

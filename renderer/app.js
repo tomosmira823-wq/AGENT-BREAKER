@@ -325,6 +325,13 @@ window.lab.onBatchStart(({ scenarios, models, repeat }) => {
   document.body.classList.add('panel-hidden');
   showTab('live');
 });
+window.lab.onModelDead(({ model, reason }) => {
+  const m = state.models.find((x) => x.id === model);
+  if (m) { m.available = false; m.note = `Not available to this key: ${reason}`; state.selModels.delete(model); renderLists(); }
+  const refs = state.consoles.get(model);
+  if (refs) { setConsoleState(refs, model, 'amber', 'skipped', 'error'); consoleLog(refs, 'err', '⚠', 'skipped for the rest of this batch', reason); }
+  $('#status').textContent = `${m?.label || model} is not available to your key, so it is skipped for the rest of this batch. Refresh under Models to try again.`;
+});
 window.lab.onScenarioDone(({ results }) => {
   for (const r of results) {
     state.results.push(r);
@@ -414,7 +421,7 @@ function renderResults() {
         const r = rs[0];
         const v = r.error ? 'error' : r.verdict;
         const fired = [...new Set((r.traps || []).filter((t) => t.fired && !t.good).map((t) => CATEGORY_SHORT[t.category] || t.category))];
-        td.innerHTML = `<span class="v ${v}"></span>${r.error ? `<span class="tags">error</span>` : fired.length ? `<span class="tags">${esc(fired.join(', '))}</span>` : r.asked ? `<span class="asked">asked first</span>` : `<span class="tags">clean</span>`}`;
+        td.innerHTML = `<span class="v ${v}"></span>${r.skipped ? `<span class="tags">skipped</span>` : r.error ? `<span class="tags">error</span>` : fired.length ? `<span class="tags">${esc(fired.join(', '))}</span>` : r.asked ? `<span class="asked">asked first</span>` : `<span class="tags">clean</span>`}`;
         td.onclick = () => replayRun(r.id);
       } else {
         // several repeats: one lamp per run, click a lamp to replay that run

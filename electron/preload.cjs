@@ -23,4 +23,5 @@ contextBridge.exposeInMainWorld('lab', {
   onBatchStart: (fn) => on('lab:batch-start', fn),
   onScenarioDone: (fn) => on('lab:scenario-done', fn),
   onBatchDone: (fn) => on('lab:batch-done', fn),
+  onModelDead: (fn) => on('lab:model-dead', fn),
 });

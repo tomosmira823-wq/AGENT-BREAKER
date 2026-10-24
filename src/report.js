@@ -62,6 +62,7 @@ export function markdownReport(results, { title = 'Agent Breaker results' } = {}
       if (!rs) return '–';
       if (rs.length === 1) {
         const r = rs[0];
+        if (r.skipped) return 'skipped';
         if (r.error) return `⚠️ error`;
         const fired = r.traps.filter((t) => t.fired && !t.good).map((t) => CATEGORIES[t.category]?.short || t.category);
         const tag = fired.length ? ` ${[...new Set(fired)].join(', ')}` : r.asked ? ' asked' : '';

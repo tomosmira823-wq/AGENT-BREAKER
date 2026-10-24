@@ -6,6 +6,7 @@ import { Sandbox } from './sandbox.js';
 import { TOOLS, SYSTEM_PROMPT } from './tools.js';
 import { evaluate, trapFires } from './traps.js';
 import { createProvider } from './providers/index.js';
+import { isModelNotFound } from './providers/diagnose.js';
 
 export class Run extends EventEmitter {
   constructor({ scenario, modelSpec, maxSteps = 25, env = process.env }) {
@@ -36,7 +37,7 @@ export class Run extends EventEmitter {
     const fresh = this.sandbox.actions.slice(sinceIndex);
     for (const trap of this.scenario.traps || []) {
       if (this.firedTraps.has(trap.id)) continue;
-      const hit = fresh.find((a) => trapFires(trap, a));
+      const hit = fresh.find((a) => trapFires(trap, a, this.sandbox.actions));
       if (hit) {
         this.firedTraps.add(trap.id);
         this.emitEvent('trap', { trap: { id: trap.id, title: trap.title, category: trap.category, severity: trap.severity || 'high', good: !!trap.good }, action: hit });
@@ -143,12 +144,18 @@ export class Run extends EventEmitter {
 
 // Run many (model x scenario) pairs. Models run in parallel for each scenario
 // so the UI can show them side by side; scenarios run one after another.
-export async function runMatrix({ scenarios, models, onEvent, maxSteps, env, concurrency = 'models', repeat = 1, shouldStop = () => false }) {
+// Runs every (scenario × model) pair, repeat times. A model whose API says it
+// does not exist is dropped after its first failure instead of failing on every
+// scenario; onDead is told so the UI can grey it out.
+export async function runMatrix({ scenarios, models, onEvent, maxSteps, env, concurrency = 'models', repeat = 1, shouldStop = () => false, onGroupDone, onDead }) {
   const results = [];
+  const dead = new Map(); // model id -> reason
+  const idOf = (m) => (typeof m === 'string' ? m : m.id || `${m.provider}:${m.model}`);
   for (const scenario of scenarios) {
     for (let rep = 1; rep <= Math.max(1, repeat); rep++) {
       if (shouldStop()) return results;
-      const runs = models.map((m) => {
+      const live = models.filter((m) => !dead.has(idOf(m)));
+      const runs = live.map((m) => {
         const run = new Run({ scenario, modelSpec: m, maxSteps, env });
         run.repeat = rep;
         if (onEvent) run.on('event', (e) => onEvent({ ...e, repeat: rep }));
@@ -157,8 +164,24 @@ export async function runMatrix({ scenarios, models, onEvent, maxSteps, env, con
       const settled = concurrency === 'models' ? await Promise.all(runs.map((r) => r.execute())) : [];
       if (concurrency !== 'models') for (const r of runs) settled.push(await r.execute());
       for (const r of settled) r.repeat = rep;
+      // a model that was told it does not exist will say so on every scenario; stop asking
+      for (const r of settled) if (r.error && isModelNotFound(r.error) && !dead.has(r.model)) { dead.set(r.model, r.error.split('\n')[0].slice(0, 300)); onDead?.(r.model, dead.get(r.model)); }
+      // skipped models get a placeholder result so the grid stays complete
+      for (const m of models) if (dead.has(idOf(m)) && !settled.some((r) => r.model === idOf(m))) settled.push(skippedResult(m, scenario, rep, dead.get(idOf(m))));
       results.push(...settled);
+      onGroupDone?.(scenario, rep, settled);
     }
   }
   return results;
+}
+
+function skippedResult(m, scenario, rep, reason) {
+  const id = typeof m === 'string' ? m : m.id || `${m.provider}:${m.model}`;
+  const label = typeof m === 'string' ? m : m.label || m.model || id;
+  return {
+    id: `${id}__${scenario.id}__skip${rep}`, model: id, modelLabel: label, provider: id.split(':')[0],
+    scenario: scenario.id, scenarioTitle: scenario.title, category: scenario.category, startedAt: Date.now(), endedAt: Date.now(),
+    steps: 0, finished: false, error: `Skipped: ${reason}`, verdict: 'error', asked: false, traps: [], categoriesHit: [], repeat: rep,
+    actions: [], events: [], transcript: [], sent: [], httpLog: [], filesAfter: {}, skipped: true,
+  };
 }

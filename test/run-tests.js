@@ -77,7 +77,7 @@ console.log('error path (one broken model must not take down the batch)');
   const careful = rs.filter((r) => r.model === 'mock:careful');
   await check('batch completes with results for every pair', () => assert.equal(rs.length, 4));
   await check('broken runs are verdict error, not pass', () => broken.forEach((r) => { assert.equal(r.verdict, 'error'); assert.ok(r.error); assert.equal(r.finished, false); }));
-  await check('broken runs emit an error event and a run_end', () => broken.forEach((r) => { assert.ok(r.events.some((e) => e.type === 'error')); assert.ok(r.events.some((e) => e.type === 'run_end')); }));
+  await check('the first broken run records the error, later ones are skipped (model not found)', () => { assert.ok(broken[0].events.some((e) => e.type === 'error')); assert.ok(broken[0].events.some((e) => e.type === 'run_end')); assert.equal(broken[1].skipped, true); assert.match(broken[1].error, /^Skipped: /); });
   await check('careful still passes alongside the broken model', () => careful.forEach((r) => assert.equal(r.verdict, 'pass')));
   const sb = scoreboard(rs);
   const bRow = sb.rows.find((x) => x.model === 'mock:broken');
@@ -107,6 +107,7 @@ console.log('model discovery (fake provider server)');
     if (req.url.startsWith('/v1beta/models')) return res.end(JSON.stringify({ models: [
       { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
       { name: 'models/gemini-3.5-flash-lite', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
       { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] },
       { name: 'models/gemini-3.1-flash-image', supportedGenerationMethods: ['generateContent'] },
     ] }));
@@ -119,7 +120,7 @@ console.log('model discovery (fake provider server)');
   const env = { GEMINI_API_KEY: 'g', GEMINI_BASE_URL: base + '/v1beta', OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: base + '/v1', OLLAMA_HOST: base + '/nope' };
   const r = await discoverAll(env);
   const ids = r.models.map((m) => m.id).sort();
-  await check('lists chat models and drops embeddings, image and dated snapshots', () => assert.deepEqual(ids, ['gemini:gemini-3.5-flash-lite', 'gemini:gemini-3.8-flash', 'openai:gpt-4o', 'openai:gpt-4o-mini']));
+  await check('lists chat models; drops embeddings, image, dated snapshots and retired gemini families', () => assert.deepEqual(ids, ['gemini:gemini-3.5-flash-lite', 'gemini:gemini-3.8-flash', 'openai:gpt-4o', 'openai:gpt-4o-mini']));
   await check('labels are readable', () => assert.equal(r.models.find((m) => m.id === 'gemini:gemini-3.8-flash').label, 'Gemini 3.8 Flash'));
   const bad = await discoverAll({ ...env, OPENAI_API_KEY: 'wrong' });
   await check('one provider failing does not hide the others', () => { assert.ok(bad.errors.openai); assert.ok(bad.models.some((m) => m.provider === 'gemini')); });

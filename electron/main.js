@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadEnv, loadModelsConfig, ROOT } from '../src/env.js';
 import { loadAllScenarios } from '../src/scenarios.js';
-import { Run } from '../src/runner.js';
+import { Run, runMatrix } from '../src/runner.js';
 import { markdownReport } from '../src/report.js';
 import { providerAvailable, parseModelSpec } from '../src/providers/index.js';
 import { mergeKeys, KEY_NAMES } from '../src/keys.js';
@@ -206,6 +206,22 @@ ipcMain.handle('lab:scenarios', () =>
 
 ipcMain.handle('lab:paths', () => ({ envFile: ENV_FILE(), runsDir: RUNS_DIR, packaged: PACKAGED }));
 
+// Models the API said do not exist for this key, remembered for a day so the
+// list can grey them out instead of letting them fail again.
+const DEAD_FILE = () => path.join(DATA_DIR, 'unavailable-models.json');
+const keyTag = (env, provider) => String(provider === 'anthropic' ? env.ANTHROPIC_API_KEY : provider === 'openai' ? env.OPENAI_API_KEY : env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '').slice(-6);
+function readDead() { try { return JSON.parse(fs.readFileSync(DEAD_FILE(), 'utf8')); } catch { return {}; } }
+function rememberDead(modelId, reason, env) {
+  const d = readDead();
+  d[modelId] = { reason, at: Date.now(), key: keyTag(env, modelId.split(':')[0]) };
+  try { fs.writeFileSync(DEAD_FILE(), JSON.stringify(d, null, 2)); } catch {}
+}
+function deadFor(env) {
+  const d = readDead(), out = {};
+  for (const [id, v] of Object.entries(d)) if (Date.now() - v.at < 24 * 3600e3 && v.key === keyTag(env, id.split(':')[0])) out[id] = v.reason;
+  return out;
+}
+
 // Models = everything the current keys can reach (asked live, cached a few
 // minutes) plus the curated models.json entries for providers with no key yet,
 // greyed out so it is clear what adding a key unlocks.
@@ -217,7 +233,9 @@ ipcMain.handle('lab:models', async (ev, { refresh } = {}) => {
   const haveKey = (p) => providerAvailable({ provider: p, model: 'x' }, env);
   const discoveredProviders = new Set(found.models.map((x) => x.provider));
   const models = [];
-  for (const d of found.models) models.push({ ...d, available: true, source: 'discovered' });
+  const dead = refresh ? {} : deadFor(env);
+  if (refresh) { try { fs.unlinkSync(DEAD_FILE()); } catch {} }
+  for (const d of found.models) models.push({ ...d, available: !dead[d.id], source: 'discovered', note: dead[d.id] ? `Not available to this key: ${dead[d.id]}` : undefined });
   for (const c of curated) {
     if (c.provider === 'mock') { models.push({ ...c, available: true, source: 'curated' }); continue; }
     if (models.some((x) => x.id === c.id)) { Object.assign(models.find((x) => x.id === c.id), { label: c.label, featured: true }); continue; }
@@ -240,25 +258,13 @@ ipcMain.handle('lab:run', async (ev, { scenarioIds, modelSpecs, maxSteps, repeat
   send('lab:batch-start', { scenarios: scenarios.map((s) => s.id), models: models.map((m) => m.id), repeat });
   let batchError = null;
   try {
-    for (const scenario of scenarios) for (let rep = 1; rep <= repeat; rep++) {
-      if (cancelled) break;
-      activeRuns = models.map((m) => {
-        const run = new Run({ scenario, modelSpec: m, maxSteps, env });
-        run.on('event', (e) => send('lab:event', { ...e, repeat: rep }));
-        return run;
-      });
-      // Run.execute never rejects, but allSettled keeps a surprise from killing the batch.
-      const settled = await Promise.allSettled(activeRuns.map((r) => r.execute()));
-      const r = settled.map((s, i) => s.status === 'fulfilled' ? { ...s.value, repeat: rep } : {
-        repeat: rep,
-        id: activeRuns[i].id, model: activeRuns[i].provider.id, modelLabel: activeRuns[i].provider.label, provider: activeRuns[i].provider.provider,
-        scenario: scenario.id, scenarioTitle: scenario.title, category: scenario.category, startedAt: Date.now(), endedAt: Date.now(),
-        steps: 0, finished: false, error: String(s.reason?.stack || s.reason), verdict: 'error', asked: false, traps: [], categoriesHit: [],
-        actions: [], events: [], transcript: [], sent: [], httpLog: [], filesAfter: {},
-      });
-      results.push(...r);
-      send('lab:scenario-done', { scenario: scenario.id, results: r.map(slim) });
-    }
+    results.push(...await runMatrix({
+      scenarios, models, maxSteps, env, repeat,
+      onEvent: (e) => send('lab:event', e),
+      shouldStop: () => cancelled,
+      onGroupDone: (scenario, rep, r) => send('lab:scenario-done', { scenario: scenario.id, repeat: rep, results: r.map(slim) }),
+      onDead: (modelId, reason) => { rememberDead(modelId, reason, env); send('lab:model-dead', { model: modelId, reason }); },
+    }));
   } catch (e) {
     batchError = String(e?.stack || e?.message || e);
   }
